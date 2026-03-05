@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Habits Tracker</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Onest:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg:#0c0c0f;
+  --s1:#13131a;
+  --s2:#1a1a24;
+  --border:#252530;
+  --border2:#2e2e3d;
+  --accent:#d4ff47;
+  --red:#ff4d5e;
+  --green:#3dffa0;
+  --blue:#5b8fff;
+  --text:#ebebf0;
+  --muted:#555568;
+  --muted2:#888899;
+  --radius:14px;
+}
+
+body {
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Onest',sans-serif;
+  min-height:100vh;
+  padding:0 0 80px;
+  background-image:
+    radial-gradient(ellipse 50% 35% at 90% 5%, rgba(212,255,71,.055) 0%,transparent 55%),
+    radial-gradient(ellipse 35% 25% at 5% 90%, rgba(61,255,160,.04) 0%,transparent 50%);
+}
+
+/* ── HEADER ── */
+.header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:20px 24px 16px;
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:10;
+  background:rgba(12,12,15,.85);
+  backdrop-filter:blur(16px);
+}
+
+.logo {
+  font-family:'Unbounded',sans-serif;
+  font-size:16px;font-weight:900;
+  color:var(--accent);
+  letter-spacing:-.02em;
+  text-transform:uppercase;
+  word-spacing:.6em;
+}
+
+.header-actions { display:flex;gap:8px;align-items:center; }
+
+.icon-btn {
+  background:var(--s2);border:1px solid var(--border2);
+  border-radius:10px;padding:8px 12px;
+  color:var(--muted2);font-size:13px;cursor:pointer;
+  transition:color .2s,border-color .2s;
+  font-family:'Onest',sans-serif;
+  display:flex;align-items:center;gap:6px;
+}
+.icon-btn:hover{color:var(--text);border-color:var(--accent);}
+
+/* ── NAV ── */
+.month-nav {
+  display:flex;align-items:center;justify-content:center;
+  gap:16px;padding:20px 24px 8px;
+}
+.month-title {
+  font-family:'Unbounded',sans-serif;
+  font-size:18px;font-weight:700;
+  min-width:220px;text-align:center;
+  color:var(--text);
+}
+.nav-btn {
+  background:var(--s2);border:1px solid var(--border2);
+  border-radius:10px;width:38px;height:38px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--muted2);font-size:18px;
+  transition:color .2s,border-color .2s;
+}
+.nav-btn:hover{color:var(--accent);border-color:var(--accent);}
+
+/* ── PERSONS LEGEND ── */
+.persons-bar {
+  display:flex;gap:8px;justify-content:center;
+  padding:8px 24px 16px;flex-wrap:wrap;
+}
+.person-pill {
+  display:flex;align-items:center;gap:6px;
+  background:var(--s2);border:1px solid var(--border2);
+  border-radius:20px;padding:5px 12px;
+  font-size:13px;font-weight:500;
+}
+.person-dot {
+  width:8px;height:8px;border-radius:50%;
+}
+
+/* ── CALENDAR ── */
+.calendar-wrap { padding:0 16px; }
+
+.calendar-grid {
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  gap:4px;
+  max-width:900px;
+  margin:0 auto;
+}
+
+.day-label {
+  text-align:center;
+  font-size:11px;
+  font-family:'Unbounded',sans-serif;
+  font-weight:700;
+  color:var(--muted);
+  padding:8px 4px;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+}
+
+.day-cell {
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-radius:10px;
+  min-height:72px;
+  padding:8px;
+  cursor:pointer;
+  transition:border-color .18s,background .18s;
+  position:relative;
+  display:flex;flex-direction:column;
+  gap:4px;
+  user-select:none;
+}
+.day-cell:hover{border-color:var(--border2);background:var(--s2);}
+.day-cell.today{border-color:rgba(212,255,71,.4);}
+.day-cell.empty{background:transparent;border-color:transparent;cursor:default;}
+.day-cell.future{opacity:.45;pointer-events:none;}
+
+.day-num {
+  font-family:'Unbounded',sans-serif;
+  font-size:12px;font-weight:700;
+  color:var(--muted2);
+  line-height:1;
+}
+.day-cell.today .day-num { color:var(--accent); }
+
+/* dots row per person */
+.day-dots {
+  display:flex;flex-direction:column;gap:3px;
+  margin-top:2px;
+}
+.person-row-dots {
+  display:flex;gap:2px;align-items:center;flex-wrap:wrap;
+}
+.dot {
+  width:7px;height:7px;border-radius:2px;
+}
+.dot.yes  { background:var(--green); }
+.dot.no   { background:var(--red); }
+.dot.none { background:var(--border2); }
+
+/* ── MODAL ── */
+.overlay {
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.7);
+  backdrop-filter:blur(6px);
+  z-index:100;
+  display:none;align-items:center;justify-content:center;
+  padding:16px;
+}
+.overlay.open { display:flex; }
+
+.modal {
+  background:var(--s1);
+  border:1px solid var(--border2);
+  border-radius:20px;
+  width:100%;max-width:440px;
+  overflow:hidden;
+  animation:slideUp .2s ease;
+}
+
+@keyframes slideUp {
+  from{opacity:0;transform:translateY(16px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+.modal-header {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:18px 20px;
+  border-bottom:1px solid var(--border);
+}
+.modal-date {
+  font-family:'Unbounded',sans-serif;
+  font-size:15px;font-weight:700;
+  color:var(--accent);
+}
+.modal-close {
+  background:none;border:none;cursor:pointer;
+  color:var(--muted2);font-size:20px;line-height:1;
+  transition:color .2s;padding:4px;
+}
+.modal-close:hover{color:var(--text);}
+
+.modal-body { padding:16px 20px 20px; }
+
+.person-section { margin-bottom:20px; }
+.person-section:last-child{margin-bottom:0;}
+
+.person-section-title {
+  font-family:'Unbounded',sans-serif;
+  font-size:12px;font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  margin-bottom:10px;
+  display:flex;align-items:center;gap:8px;
+}
+
+.habit-check-row {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 0;
+  border-bottom:1px solid var(--border);
+}
+.habit-check-row:last-child{border-bottom:none;}
+
+.habit-check-name { font-size:14px; }
+.habit-status-ro { font-size:18px; }
+
+.status-toggle {
+  display:flex;gap:4px;
+}
+.status-btn {
+  border:1px solid var(--border2);
+  background:var(--bg);
+  border-radius:8px;
+  width:34px;height:34px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:15px;
+  transition:all .15s;
+}
+.status-btn:hover{border-color:var(--muted2);}
+.status-btn.active-yes{background:rgba(61,255,160,.15);border-color:var(--green);}
+.status-btn.active-no {background:rgba(255,77,94,.15);border-color:var(--red);}
+
+.bar-track {
+  height:4px;background:var(--border2);border-radius:2px;
+  margin-top:8px;overflow:hidden;
+}
+.bar-fill {
+  height:100%;border-radius:2px;background:var(--green);
+  transition:width .5s ease;
+}
+
+/* ── SETTINGS PANEL ── */
+.settings-overlay {
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.7);
+  backdrop-filter:blur(6px);
+  z-index:200;
+  display:none;align-items:center;justify-content:center;
+  padding:16px;
+}
+.settings-overlay.open{display:flex;}
+
+.settings-modal {
+  background:var(--s1);border:1px solid var(--border2);
+  border-radius:20px;width:100%;max-width:400px;
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  max-height:calc(100vh - 32px);
+  animation:slideUp .2s ease;
+}
+.settings-header {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:18px 20px;border-bottom:1px solid var(--border);
+}
+.settings-title {
+  font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.settings-body{padding:16px 20px 20px;overflow-y:auto;overflow-x:hidden;}
+
+.settings-section{margin-bottom:20px;}
+.settings-section-title {
+  font-size:11px;color:var(--muted2);
+  font-family:'Unbounded',sans-serif;font-weight:700;
+  text-transform:uppercase;letter-spacing:.08em;
+  margin-bottom:10px;
+}
+.settings-list{display:flex;flex-direction:column;gap:6px;}
+.settings-item {
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:10px;padding:9px 12px;
+  font-size:14px;
+}
+.del-btn {
+  background:none;border:none;cursor:pointer;
+  color:var(--muted);font-size:16px;
+  transition:color .2s;padding:2px 4px;
+}
+.del-btn:hover{color:var(--red);}
+
+.add-row{display:flex;gap:8px;margin-top:8px;width:100%;}
+.add-input {
+  flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);
+  border-radius:10px;padding:9px 12px;
+  color:var(--text);font-family:'Onest',sans-serif;font-size:13px;
+  outline:none;transition:border-color .2s;
+}
+.add-input:focus{border-color:var(--accent);}
+.add-input::placeholder{color:var(--muted);}
+
+.add-btn {
+  background:var(--accent);color:#0c0c0f;
+  border:none;border-radius:10px;padding:9px 14px;
+  font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;
+  cursor:pointer;white-space:nowrap;text-transform:uppercase;
+  transition:opacity .2s;
+}
+.add-btn:hover{opacity:.85;}
+
+/* ── DB BUTTONS ── */
+.db-row { display:flex;gap:8px;margin-top:4px; }
+.db-btn {
+  flex:1;padding:9px 12px;
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:10px;cursor:pointer;
+  color:var(--muted2);font-size:13px;font-family:'Onest',sans-serif;
+  transition:all .2s;text-align:center;
+}
+.db-btn:hover { border-color:var(--border2);color:var(--text); }
+.db-btn.import-btn:hover { border-color:var(--accent);color:var(--accent); }
+
+/* ── LANGUAGE PICKER ── */
+.lang-picker { display:flex;gap:8px;margin-top:4px; }
+.lang-btn {
+  flex:1;padding:8px 12px;
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:10px;cursor:pointer;
+  color:var(--muted2);font-size:13px;font-family:'Onest',sans-serif;
+  transition:all .2s;
+}
+.lang-btn:hover { border-color:var(--border2);color:var(--text); }
+.lang-btn.active { border-color:var(--accent);color:var(--accent);background:rgba(212,255,71,.08); }
+
+/* person color circles */
+.p-color-0{background:#5b8fff;}
+.p-color-1{background:#ff9f47;}
+.p-color-2{background:#c77dff;}
+.p-color-3{background:#ff6b9d;}
+
+/* ── TAB BAR ── */
+.tab-bar {
+  position:fixed;
+  bottom:0;left:0;right:0;
+  height:62px;
+  background:rgba(19,19,26,.95);
+  border-top:1px solid var(--border);
+  display:flex;
+  z-index:50;
+  padding-bottom:env(safe-area-inset-bottom,0);
+  backdrop-filter:blur(16px);
+}
+.tab-item {
+  flex:1;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:3px;
+  cursor:pointer;
+  color:var(--muted);
+  font-size:11px;
+  font-family:'Onest',sans-serif;
+  transition:color .2s;
+  border:none;background:none;
+}
+.tab-item.active { color:var(--accent); }
+.tab-icon { font-size:20px;line-height:1; }
+
+/* ── TAMAGOTCHI ── */
+.tama-list { padding:0 16px 16px; display:flex;flex-direction:column;gap:12px; }
+
+.tama-card {
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:16px;
+}
+
+.tama-top {
+  display:flex;
+  align-items:center;
+  gap:16px;
+  margin-bottom:14px;
+}
+
+.tama-img-wrap {
+  width:80px;height:80px;
+  border-radius:14px;
+  background:var(--s2);
+  border:2px solid var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-size:44px;
+  flex-shrink:0;
+  overflow:hidden;
+}
+.tama-img-wrap img { width:100%;height:100%;object-fit:contain; }
+
+.tama-info { flex:1;min-width:0; }
+
+.tama-name {
+  font-family:'Unbounded',sans-serif;
+  font-size:13px;font-weight:700;
+  margin-bottom:4px;
+  display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;
+}
+
+.tama-level {
+  font-size:11px;color:var(--muted2);
+  margin-bottom:8px;
+}
+.tama-evo-badge {
+  display:inline-block;
+  background:var(--s2);
+  border:1px solid var(--border2);
+  border-radius:6px;
+  padding:2px 7px;
+  font-size:11px;color:var(--accent);
+}
+
+.tama-progress-wrap { display:flex;align-items:center;gap:8px; }
+.tama-bar-track {
+  flex:1;height:6px;
+  background:var(--s2);border-radius:3px;
+  overflow:hidden;
+}
+.tama-bar-fill {
+  height:100%;border-radius:3px;
+  background:linear-gradient(90deg,#5b8fff,var(--accent));
+  transition:width .4s ease;
+}
+.tama-pts {
+  font-size:11px;color:var(--muted2);
+  white-space:nowrap;
+}
+.tama-next-evo {
+  font-size:11px;color:var(--muted);
+  margin-top:5px;
+}
+
+/* Evolution road */
+.tama-road {
+  display:flex;
+  align-items:center;
+  gap:0;
+  padding:12px 16px 4px;
+  overflow-x:auto;
+}
+.tama-road-item {
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  flex:1;min-width:0;
+}
+.tama-road-img {
+  width:100%;aspect-ratio:1;max-width:52px;
+  border-radius:8px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;
+  overflow:hidden;
+}
+.tama-road-img img { width:100%;height:100%;object-fit:contain; }
+.tama-road-img.current {
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px rgba(212,255,71,.25);
+}
+.tama-road-connector {
+  width:100%;height:2px;
+  background:var(--border);
+  margin-bottom:16px;
+  flex-shrink:1;
+  max-width:12px;
+  min-width:4px;
+}
+.tama-road-num {
+  font-size:10px;color:var(--muted);
+}
+.tama-road-img { cursor:pointer; }
+
+/* Evo preview modal */
+.evo-preview-overlay {
+  display:none;position:fixed;inset:0;z-index:200;
+  background:rgba(0,0,0,.75);
+  align-items:center;justify-content:center;
+  backdrop-filter:blur(8px);
+}
+.evo-preview-overlay.open { display:flex; }
+.evo-preview-box {
+  width:220px;height:220px;
+  border-radius:20px;
+  background:var(--s1);
+  border:2px solid var(--border2);
+  overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  font-size:120px;
+}
+
+/* ── SUBSCRIPTION BANNER ── */
+.sub-banner {
+  display:none;
+  margin:12px 16px 0;
+  padding:10px 14px;
+  border-radius:12px;
+  font-size:13px;
+  align-items:center;
+  gap:10px;
+}
+.sub-banner.show { display:flex; }
+.sub-banner.trial {
+  background:rgba(212,255,71,.1);
+  border:1px solid rgba(212,255,71,.25);
+  color:var(--accent);
+}
+.sub-banner.expired {
+  background:rgba(255,77,94,.1);
+  border:1px solid rgba(255,77,94,.3);
+  color:#ff4d5e;
+}
+.sub-banner-text { flex:1; }
+.sub-banner-btn {
+  background:var(--accent);color:#0c0c0f;
+  border:none;border-radius:8px;
+  padding:6px 12px;font-size:12px;font-weight:700;
+  cursor:pointer;white-space:nowrap;
+  font-family:'Onest',sans-serif;
+}
+
+/* ── PAYWALL MODAL ── */
+.paywall-overlay {
+  display:none;position:fixed;inset:0;z-index:300;
+  background:rgba(0,0,0,.8);
+  align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(8px);
+}
+.paywall-overlay.open { display:flex; }
+.paywall-sheet {
+  background:var(--s1);
+  border:1px solid var(--border2);
+  border-radius:20px 20px 0 0;
+  padding:28px 24px 36px;
+  width:100%;max-width:480px;
+  text-align:center;
+}
+.paywall-icon { font-size:48px;margin-bottom:12px; }
+.paywall-title {
+  font-family:'Unbounded',sans-serif;
+  font-size:16px;font-weight:700;
+  margin-bottom:8px;
+}
+.paywall-desc {
+  font-size:13px;color:var(--muted2);
+  line-height:1.5;margin-bottom:24px;
+}
+.paywall-price {
+  font-family:'Unbounded',sans-serif;
+  font-size:22px;font-weight:900;
+  color:var(--accent);margin-bottom:20px;
+}
+.paywall-btn {
+  display:block;width:100%;
+  background:var(--accent);color:#0c0c0f;
+  border:none;border-radius:14px;
+  padding:16px;font-size:15px;font-weight:700;
+  cursor:pointer;font-family:'Onest',sans-serif;
+  margin-bottom:10px;
+}
+.paywall-cancel {
+  font-size:13px;color:var(--muted);cursor:pointer;
+  background:none;border:none;font-family:'Onest',sans-serif;
+}
+
+/* ── ACHIEVEMENTS ── */
+.view-section-title {
+  font-family:'Unbounded',sans-serif;
+  font-size:13px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;
+  color:var(--muted2);
+  padding:20px 24px 12px;
+}
+
+.achiev-list { padding:0 16px; display:flex;flex-direction:column;gap:12px; }
+
+.achiev-card {
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+}
+.achiev-person-header {
+  display:flex;align-items:center;gap:10px;
+  padding:14px 16px 12px;
+  border-bottom:1px solid var(--border);
+  font-family:'Unbounded',sans-serif;
+  font-size:13px;font-weight:700;
+}
+.achiev-person-header .person-dot {
+  width:10px;height:10px;border-radius:3px;flex-shrink:0;
+}
+
+.achiev-habit {
+  padding:12px 16px;
+  border-bottom:1px solid var(--border);
+}
+.achiev-habit:last-child { border-bottom:none; }
+
+.achiev-habit-header {
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:10px;
+}
+.achiev-habit-name {
+  font-size:14px;font-weight:500;
+}
+.achiev-streak-live {
+  background:rgba(61,255,160,.12);
+  border:1px solid rgba(61,255,160,.3);
+  color:var(--green);
+  border-radius:20px;padding:3px 10px;
+  font-size:12px;font-weight:600;
+  font-family:'Unbounded',sans-serif;
+  white-space:nowrap;
+}
+.achiev-streak-best {
+  color:var(--muted2);font-size:12px;
+}
+
+.achiev-badges {
+  display:flex;gap:8px;flex-wrap:wrap;
+}
+
+.badge {
+  display:flex;flex-direction:column;
+  align-items:center;gap:2px;
+  width:44px;
+}
+.badge-circle {
+  width:44px;height:44px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;
+  border:2px solid transparent;
+  transition:all .2s;
+  position:relative;
+}
+.badge-days {
+  font-size:10px;font-family:'Unbounded',sans-serif;font-weight:700;
+  color:var(--muted2);
+}
+.badge-locked .badge-circle {
+  background:var(--s2);
+  border-color:var(--border);
+  filter:grayscale(1);
+  opacity:.35;
+}
+.badge-unlocked .badge-circle {
+  background:var(--s2);
+  border-color:var(--border2);
+}
+.badge-active .badge-circle {
+  background:rgba(212,255,71,.1);
+  border-color:var(--accent);
+  box-shadow:0 0 12px rgba(212,255,71,.25);
+}
+.badge-active .badge-days { color:var(--accent); }
+
+/* ── LEADERBOARD ── */
+.lb-list { padding:0 16px;display:flex;flex-direction:column;gap:10px; }
+
+.lb-row {
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:14px;padding:14px 16px;
+  display:flex;align-items:center;gap:14px;
+}
+.lb-rank {
+  font-size:24px;line-height:1;
+  min-width:32px;text-align:center;
+}
+.lb-rank-num {
+  font-family:'Unbounded',sans-serif;
+  font-size:14px;font-weight:700;
+  color:var(--muted2);
+  min-width:32px;text-align:center;
+}
+.lb-info { flex:1;min-width:0; }
+.lb-name {
+  display:flex;align-items:center;gap:8px;
+  font-size:15px;font-weight:600;
+  margin-bottom:8px;
+}
+.lb-bar-wrap .bar-track { margin-top:0;height:6px; }
+.lb-score { text-align:right;min-width:48px; }
+.lb-pct {
+  font-family:'Unbounded',sans-serif;
+  font-size:16px;font-weight:700;
+  color:var(--accent);
+}
+.lb-counts { font-size:11px;color:var(--muted2);margin-top:2px; }
+
+.lb-row:first-child { border-color:rgba(212,255,71,.3); }
+
+.empty-state {
+  text-align:center;padding:48px 24px;
+  color:var(--muted2);font-size:14px;
+}
+
+@media(max-width:480px){
+  .day-cell{min-height:56px;padding:6px;}
+  .day-num{font-size:11px;}
+  .dot{width:6px;height:6px;}
+  .stats-bar{grid-template-columns:1fr;}
+  .badge{width:38px;}
+  .badge-circle{width:38px;height:38px;font-size:17px;}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo" id="logo-title">Habits Tracker</div>
+  <div class="header-actions">
+    <button class="icon-btn" onclick="openSettings()" id="hdr-settings-btn">⚙ Настройки</button>
+  </div>
+</div>
+
+<!-- ── Calendar view ── -->
+<!-- Subscription banner (shown on all tabs) -->
+<div class="sub-banner" id="sub-banner">
+  <div class="sub-banner-text" id="sub-banner-text"></div>
+  <button class="sub-banner-btn" onclick="openPaywall()" id="sub-banner-btn"></button>
+</div>
+
+<div id="view-calendar">
+  <div class="month-nav">
+    <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+    <div class="month-title" id="month-title">—</div>
+    <button class="nav-btn" onclick="changeMonth(1)">›</button>
+  </div>
+
+  <div class="persons-bar" id="persons-bar"></div>
+
+  <div class="calendar-wrap">
+    <div class="calendar-grid" id="calendar-grid"></div>
+  </div>
+
+</div>
+
+<!-- ── Achievements view ── -->
+<div id="view-achievements" style="display:none">
+  <div class="view-section-title" id="achievements-view-title">Ачивки</div>
+  <div class="achiev-list" id="achievements-content"></div>
+</div>
+
+<!-- ── Tamagotchi view ── -->
+<div id="view-tamagotchi" style="display:none">
+  <div class="view-section-title" id="tamagotchi-view-title">Тамагочи</div>
+  <div class="tama-road" id="tama-road"></div>
+  <div class="tama-list" id="tamagotchi-content"></div>
+</div>
+
+<!-- ── Leaderboard view ── -->
+<div id="view-leaderboard" style="display:none">
+  <div class="month-nav">
+    <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+    <div class="month-title" id="lb-month-title">—</div>
+    <button class="nav-btn" onclick="changeMonth(1)">›</button>
+  </div>
+  <div class="lb-list" id="leaderboard-content"></div>
+</div>
+
+<!-- Day Modal -->
+<div class="overlay" id="day-overlay" onclick="closeModal(event)">
+  <div class="modal" id="day-modal">
+    <div class="modal-header">
+      <div class="modal-date" id="modal-date">—</div>
+      <button class="modal-close" onclick="closeDayModal()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettingsOverlay(event)">
+  <div class="settings-modal">
+    <div class="settings-header">
+      <div class="settings-title" id="settings-modal-title">Настройки</div>
+      <button class="modal-close" onclick="closeSettings()">×</button>
+    </div>
+    <div class="settings-body" id="settings-body"></div>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div style="text-align:center;font-size:10px;color:var(--muted);padding:4px 0 2px;letter-spacing:.05em">v1.0</div>
+<nav class="tab-bar">
+  <button class="tab-item active" data-tab="calendar" onclick="switchTab('calendar')">
+    <span class="tab-icon">📅</span>
+    <span id="tab-lbl-calendar">Календарь</span>
+  </button>
+  <button class="tab-item" data-tab="achievements" onclick="switchTab('achievements')">
+    <span class="tab-icon">🏅</span>
+    <span id="tab-lbl-achievements">Ачивки</span>
+  </button>
+  <button class="tab-item" data-tab="leaderboard" onclick="switchTab('leaderboard')">
+    <span class="tab-icon">📊</span>
+    <span id="tab-lbl-leaderboard">Рейтинг</span>
+  </button>
+  <button class="tab-item" data-tab="tamagotchi" onclick="switchTab('tamagotchi')">
+    <span class="tab-icon">🥚</span>
+    <span id="tab-lbl-tamagotchi">Тамагочи</span>
+  </button>
+</nav>
+
+<!-- Paywall modal -->
+<div class="paywall-overlay" id="paywall-overlay">
+  <div class="paywall-sheet">
+    <div class="paywall-icon">🔒</div>
+    <div class="paywall-title" id="paywall-title"></div>
+    <div class="paywall-desc" id="paywall-desc"></div>
+    <div class="paywall-price" id="paywall-price"></div>
+    <button class="paywall-btn" id="paywall-btn" onclick="startPayment()"></button>
+    <button class="paywall-cancel" onclick="closePaywall()" id="paywall-cancel"></button>
+  </div>
+</div>
+
+<div class="evo-preview-overlay" id="evo-preview-overlay" onclick="closeEvoPreview()">
+  <div class="evo-preview-box" id="evo-preview-box"></div>
+</div>
+
+<input type="file" id="import-file-input" accept=".json" style="display:none" onchange="importDb()">
+
+<script>
+const API = '/api';
+const TG_INIT_DATA = window.Telegram?.WebApp?.initData || '';
+const _startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param || '';
+const URL_CHAT_ID = new URLSearchParams(window.location.search).get('cid')
+  || (_startParam.startsWith('g') ? String(-parseInt(_startParam.slice(1))) : null);
+const COLORS = ['p-color-0','p-color-1','p-color-2','p-color-3'];
+
+const TRANSLATIONS = {
+  ru: {
+    logoTitle:            'Календарь привычек',
+    settingsBtn:          '⚙ Настройки',
+    settingsTitle:        'Настройки',
+    sectionMembers:       'Участники',
+    sectionLanguage:      'Язык',
+    sectionDatabase:      'База данных',
+    sectionSubscription:  'Подписка',
+    sectionAdmin:         'Режим администратора',
+    adminModeOn:          'Режим администратора включён',
+    adminModeOff:         'Режим администратора выключен',
+    subStatusTrial:       s => `Пробный период: ${s}`,
+    subStatusActive:      d => `Активна до ${d}`,
+    subStatusExpired:     'Истекла',
+    btnExport:            'Экспорт БД',
+    btnImport:            'Импорт БД',
+    confirmImport:        'Заменить текущую базу данных? Все данные будут перезаписаны.',
+    importSuccess:        'База данных импортирована',
+    placeholderMember:    'Новый участник...',
+    placeholderHabit:     'Новая привычка...',
+    btnAdd:               '+ Добавить',
+    habitsFor:            n => `Привычки — ${n}`,
+    confirmDeletePerson:  'Удалить участника и все его данные?',
+    confirmDeleteHabit:   'Удалить привычку и все отметки по ней?',
+    tabCalendar:          'Календарь',
+    tabAchievements:      'Ачивки',
+    tabLeaderboard:       'Рейтинг',
+    tabTamagotchi:        'Тамагочи',
+    achievementsTitle:    'Ачивки',
+    tamagotchiTitle:      'Тамагочи',
+    tamaLevel:            n => `Уровень ${n}`,
+    tamaEvo:              n => `Эво ${n}`,
+    tamaPts:              (cur, max) => `${cur} / ${max} ⭐`,
+    tamaNextEvo:          n => `Эво 🔒 на уровне ${n}`,
+    tamaMaxEvo:           () => `Максимальная эволюция 👑`,
+    subTrialBanner:       s => `⏱ Пробный период: ${s}`,
+    subExpiredBanner:     'Пробный период истёк',
+    subBannerBtn:         'Оформить подписку',
+    subPaywallTitle:      'Оформить подписку',
+    subPaywallDesc:       'Для продолжения отмечать привычки необходимо оформить подписку на 30 дней.',
+    subPaywallBtn:        'Оплатить',
+    subPaywallCancel:     'Отмена',
+    subDaysLeft:          n => `${n} дн.`,
+    subHoursLeft:         n => `${n} ч.`,
+    subMinutesLeft:       n => `${n} мин.`,
+    subSecondsLeft:       n => `${n} сек.`,
+    noMembers:            'Нет участников',
+    noData:               'Нет данных',
+    streakLive:           n => `🔥 ${n} дн`,
+    streakBest:           n => `Лучший: ${n}`,
+    badgeTitle:           n => `${n} дней подряд`,
+    monthNames: ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'],
+    dayNames:   ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'],
+  },
+  en: {
+    logoTitle:            'Habits Tracker',
+    settingsBtn:          '⚙ Settings',
+    settingsTitle:        'Settings',
+    sectionMembers:       'Members',
+    sectionLanguage:      'Language',
+    sectionDatabase:      'Database',
+    sectionSubscription:  'Subscription',
+    sectionAdmin:         'Admin mode',
+    adminModeOn:          'Admin mode enabled',
+    adminModeOff:         'Admin mode disabled',
+    subStatusTrial:       s => `Trial: ${s}`,
+    subStatusActive:      d => `Active until ${d}`,
+    subStatusExpired:     'Expired',
+    btnExport:            'Export DB',
+    btnImport:            'Import DB',
+    confirmImport:        'Replace current database? All data will be overwritten.',
+    importSuccess:        'Database imported',
+    placeholderMember:    'New member...',
+    placeholderHabit:     'New habit...',
+    btnAdd:               '+ Add',
+    habitsFor:            n => `Habits — ${n}`,
+    confirmDeletePerson:  'Delete member and all their data?',
+    confirmDeleteHabit:   'Delete habit and all its records?',
+    tabCalendar:          'Calendar',
+    tabAchievements:      'Achievements',
+    tabLeaderboard:       'Leaderboard',
+    tabTamagotchi:        'Tamagotchi',
+    achievementsTitle:    'Achievements',
+    tamagotchiTitle:      'Tamagotchi',
+    tamaLevel:            n => `Level ${n}`,
+    tamaEvo:              n => `Evo ${n}`,
+    tamaPts:              (cur, max) => `${cur} / ${max} ⭐`,
+    tamaNextEvo:          n => `Evo 🔒 at level ${n}`,
+    tamaMaxEvo:           () => `Max evolution 👑`,
+    subTrialBanner:       s => `⏱ Trial: ${s}`,
+    subExpiredBanner:     'Trial expired',
+    subBannerBtn:         'Subscribe',
+    subPaywallTitle:      'Subscribe',
+    subPaywallDesc:       'To continue marking habits, subscribe for 30 days.',
+    subPaywallBtn:        'Pay',
+    subPaywallCancel:     'Cancel',
+    subDaysLeft:          n => `${n}d`,
+    subHoursLeft:         n => `${n}h`,
+    subMinutesLeft:       n => `${n}m`,
+    subSecondsLeft:       n => `${n}s`,
+    noMembers:            'No members',
+    noData:               'No data',
+    streakLive:           n => `🔥 ${n}d`,
+    streakBest:           n => `Best: ${n}`,
+    badgeTitle:           n => `${n} days in a row`,
+    monthNames: ['January','February','March','April','May','June','July','August','September','October','November','December'],
+    dayNames:   ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+  },
+};
+
+let lang = localStorage.getItem('lang') || 'ru';
+const T = () => TRANSLATIONS[lang];
+
+const STREAK_MILESTONES = [
+  { days: 2,  emoji: '🔥', label: '2' },
+  { days: 3,  emoji: '💪', label: '3' },
+  { days: 5,  emoji: '⚡', label: '5' },
+  { days: 7,  emoji: '🌟', label: '7' },
+  { days: 14, emoji: '🏆', label: '14' },
+  { days: 30, emoji: '👑', label: '30' },
+  { days: 60, emoji: '💎', label: '60' },
+];
+
+let persons = [], habits = [], checks = {}, streaks = [];
+let curYear = new Date().getFullYear();
+let curMonth = new Date().getMonth() + 1;
+let activeDate = null;
+let currentTab = 'calendar';
+
+// ── API helpers ─────────────────────────────────────
+async function api(path, method='GET', body=null) {
+  const headers = {'Content-Type':'application/json', 'X-Telegram-Init-Data': TG_INIT_DATA};
+  if (URL_CHAT_ID) headers['X-Chat-Id'] = URL_CHAT_ID;
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── i18n ─────────────────────────────────────────────
+function updateI18n() {
+  const t = T();
+  document.getElementById('logo-title').textContent             = t.logoTitle;
+  document.getElementById('hdr-settings-btn').textContent      = t.settingsBtn;
+  document.getElementById('settings-modal-title').textContent  = t.settingsTitle;
+  document.getElementById('achievements-view-title').textContent = t.achievementsTitle;
+  document.getElementById('tab-lbl-calendar').textContent      = t.tabCalendar;
+  document.getElementById('tab-lbl-achievements').textContent  = t.tabAchievements;
+  document.getElementById('tab-lbl-leaderboard').textContent   = t.tabLeaderboard;
+  document.getElementById('tab-lbl-tamagotchi').textContent    = t.tabTamagotchi;
+  document.getElementById('tamagotchi-view-title').textContent = t.tamagotchiTitle;
+}
+
+function setLang(l) {
+  lang = l;
+  localStorage.setItem('lang', l);
+  updateI18n();
+  render();
+  renderSubBanner();
+  if (currentTab === 'achievements') renderAchievements();
+  if (currentTab === 'leaderboard')  renderLeaderboard();
+  if (currentTab === 'tamagotchi')   renderTamagotchi();
+  renderSettingsBody();
+}
+
+// ── Tab switching ─────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.tab-item[data-tab="${tab}"]`).classList.add('active');
+  document.getElementById('view-calendar').style.display     = tab === 'calendar'     ? '' : 'none';
+  document.getElementById('view-achievements').style.display = tab === 'achievements' ? '' : 'none';
+  document.getElementById('view-leaderboard').style.display  = tab === 'leaderboard'  ? '' : 'none';
+  document.getElementById('view-tamagotchi').style.display   = tab === 'tamagotchi'   ? '' : 'none';
+  if (tab === 'achievements') loadAndRenderAchievements();
+  if (tab === 'leaderboard')  renderLeaderboard();
+  if (tab === 'tamagotchi')   renderTamagotchi();
+}
+
+// ── Load data ────────────────────────────────────────
+async function loadAll() {
+  [persons, habits] = await Promise.all([
+    api('/persons'), api('/habits')
+  ]);
+  await loadChecks();
+}
+
+async function loadChecks() {
+  const raw = await api(`/checks?year=${curYear}&month=${curMonth}`);
+  checks = {};
+  raw.forEach(c => {
+    const key = `${c.person_id}_${c.habit_id}_${c.check_date}`;
+    checks[key] = c.status;
+  });
+}
+
+// ── Render calendar ──────────────────────────────────
+function render() {
+  renderPersonsBar();
+  renderCalendar();
+}
+
+function renderPersonsBar() {
+  const bar = document.getElementById('persons-bar');
+  bar.innerHTML = persons.map((p,i) => `
+    <div class="person-pill">
+      <div class="person-dot ${COLORS[i%COLORS.length]}"></div>
+      ${p.name}
+    </div>
+  `).join('');
+}
+
+function renderCalendar() {
+  document.getElementById('month-title').textContent =
+    `${T().monthNames[curMonth-1]} ${curYear}`;
+
+  const grid = document.getElementById('calendar-grid');
+  grid.innerHTML = '';
+
+  T().dayNames.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'day-label';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const today = new Date();
+  const firstDay = new Date(curYear, curMonth-1, 1);
+  let startDow = firstDay.getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1;
+
+  const daysInMonth = new Date(curYear, curMonth, 0).getDate();
+
+  for (let i=0; i<startDow; i++) {
+    const el = document.createElement('div');
+    el.className = 'day-cell empty';
+    grid.appendChild(el);
+  }
+
+  for (let d=1; d<=daysInMonth; d++) {
+    const dateStr = `${curYear}-${String(curMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const cellDate = new Date(curYear, curMonth-1, d);
+    const isFuture = cellDate > today && !(
+      cellDate.getDate()===today.getDate() &&
+      cellDate.getMonth()===today.getMonth() &&
+      cellDate.getFullYear()===today.getFullYear()
+    );
+    const isToday = cellDate.toDateString() === today.toDateString();
+
+    const cell = document.createElement('div');
+    cell.className = `day-cell${isToday?' today':''}${isFuture?' future':''}`;
+
+    const numEl = document.createElement('div');
+    numEl.className = 'day-num';
+    numEl.textContent = d;
+    cell.appendChild(numEl);
+
+    const dotsWrap = document.createElement('div');
+    dotsWrap.className = 'day-dots';
+
+    persons.forEach((p,pi) => {
+      const personHabits = habits.filter(h => h.person_id === p.id);
+      const hasChecks = personHabits.some(h => checks[`${p.id}_${h.id}_${dateStr}`]);
+      const personVisible = adminMode || hasChecks || !p.created_at || dateStr >= p.created_at.slice(0,10);
+      if (!personVisible) return;
+      const row = document.createElement('div');
+      row.className = 'person-row-dots';
+      habits.filter(h => h.person_id === p.id && (adminMode || checks[`${p.id}_${h.id}_${dateStr}`] || !h.created_at || dateStr >= h.created_at.slice(0,10))).forEach(h => {
+        const key = `${p.id}_${h.id}_${dateStr}`;
+        const status = checks[key];
+        const dot = document.createElement('div');
+        dot.className = `dot ${status || 'none'}`;
+        row.appendChild(dot);
+      });
+      dotsWrap.appendChild(row);
+    });
+
+    cell.appendChild(dotsWrap);
+    if (!isFuture) cell.addEventListener('click', () => openDayModal(dateStr, d));
+    grid.appendChild(cell);
+  }
+}
+
+// ── Day modal ────────────────────────────────────────
+function _todayStr() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
+
+function openDayModal(dateStr, dayNum) {
+  if (!isSubscribed()) { openPaywall(); return; }
+  activeDate = dateStr;
+  document.getElementById('modal-date').textContent =
+    `${dayNum} ${T().monthNames[curMonth-1]} ${curYear}`;
+  renderModalBody(dateStr);
+  document.getElementById('day-overlay').classList.add('open');
+}
+
+function renderModalBody(dateStr) {
+  const body = document.getElementById('modal-body');
+  const today = _todayStr();
+  // Past dates are read-only unless admin mode
+  const readOnly = !adminMode && dateStr < today;
+
+  body.innerHTML = persons
+    .filter(p => {
+      if (adminMode) return true;
+      const ph = habits.filter(h => h.person_id === p.id);
+      const hasData = ph.some(h => checks[`${p.id}_${h.id}_${dateStr}`]);
+      // Show if has imported data OR date is within creation window
+      return hasData || !p.created_at || dateStr >= p.created_at.slice(0,10);
+    })
+    .map((p,pi) => `
+    <div class="person-section">
+      <div class="person-section-title">
+        <div class="person-dot ${COLORS[pi%COLORS.length]}" style="width:10px;height:10px;border-radius:3px;"></div>
+        ${p.name}
+      </div>
+      ${habits.filter(h => {
+        if (h.person_id !== p.id) return false;
+        if (adminMode) return true;
+        return checks[`${p.id}_${h.id}_${dateStr}`] || !h.created_at || dateStr >= h.created_at.slice(0,10);
+      }).map(h => {
+        const key = `${p.id}_${h.id}_${dateStr}`;
+        const status = checks[key];
+        const statusIcon = status === 'yes' ? '✅' : status === 'no' ? '❌' : '—';
+        return `
+        <div class="habit-check-row">
+          <div class="habit-check-name">${h.title}</div>
+          ${readOnly
+            ? `<div class="habit-status-ro">${statusIcon}</div>`
+            : `<div class="status-toggle">
+                <button class="status-btn ${status==='yes'?'active-yes':''}"
+                  onclick="setStatus(${p.id},${h.id},'${dateStr}','yes',this)">✅</button>
+                <button class="status-btn ${status==='no'?'active-no':''}"
+                  onclick="setStatus(${p.id},${h.id},'${dateStr}','no',this)">❌</button>
+              </div>`
+          }
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
+async function setStatus(personId, habitId, dateStr, value, btn) {
+  const key = `${personId}_${habitId}_${dateStr}`;
+  const current = checks[key];
+  const newStatus = current === value ? null : value;
+
+  checks[key] = newStatus;
+  await api('/checks', 'POST', {
+    person_id: personId,
+    habit_id: habitId,
+    check_date: dateStr,
+    status: newStatus
+  });
+
+  renderModalBody(dateStr);
+  renderCalendar();
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('day-overlay')) closeDayModal();
+}
+function closeDayModal() {
+  document.getElementById('day-overlay').classList.remove('open');
+}
+
+// ── Month nav ────────────────────────────────────────
+async function changeMonth(dir) {
+  curMonth += dir;
+  if (curMonth > 12) { curMonth = 1; curYear++; }
+  if (curMonth < 1)  { curMonth = 12; curYear--; }
+  await loadChecks();
+  if (currentTab === 'calendar') {
+    render();
+  } else if (currentTab === 'leaderboard') {
+    renderLeaderboard();
+  }
+}
+
+// ── Achievements ──────────────────────────────────────
+async function loadAndRenderAchievements() {
+  streaks = await api('/streaks');
+  renderAchievements();
+}
+
+function getStreak(personId, habitId) {
+  return streaks.find(s => s.person_id === personId && s.habit_id === habitId)
+    || { current: 0, best: 0 };
+}
+
+function renderAchievements() {
+  const content = document.getElementById('achievements-content');
+  if (!persons.length) {
+    content.innerHTML = `<div class="empty-state">${T().noMembers}</div>`;
+    return;
+  }
+
+  content.innerHTML = persons.map((p, pi) => {
+    const pHabits = habits.filter(h => h.person_id === p.id);
+    if (!pHabits.length) return '';
+
+    const habitsHtml = pHabits.map(h => {
+      const { current, best } = getStreak(p.id, h.id);
+
+      const badgesHtml = STREAK_MILESTONES.map(m => {
+        const unlocked = best >= m.days;
+        const active   = current >= m.days;
+        let cls = 'badge ';
+        cls += active ? 'badge-active' : unlocked ? 'badge-unlocked' : 'badge-locked';
+        return `
+          <div class="${cls}" title="${T().badgeTitle(m.days)}">
+            <div class="badge-circle">${m.emoji}</div>
+            <div class="badge-days">${m.label}</div>
+          </div>`;
+      }).join('');
+
+      const streakBadge = current > 0
+        ? `<span class="achiev-streak-live">${T().streakLive(current)}</span>`
+        : best > 0 ? `<span class="achiev-streak-best">${T().streakBest(best)}</span>` : '';
+
+      return `
+        <div class="achiev-habit">
+          <div class="achiev-habit-header">
+            <span class="achiev-habit-name">${h.title}</span>
+            ${streakBadge}
+          </div>
+          <div class="achiev-badges">${badgesHtml}</div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="achiev-card">
+        <div class="achiev-person-header">
+          <div class="person-dot ${COLORS[pi%COLORS.length]}"></div>
+          ${p.name}
+        </div>
+        ${habitsHtml}
+      </div>`;
+  }).join('');
+}
+
+// ── Leaderboard ───────────────────────────────────────
+async function renderLeaderboard() {
+  document.getElementById('lb-month-title').textContent =
+    `${T().monthNames[curMonth-1]} ${curYear}`;
+
+  const data = await api(`/stats?year=${curYear}&month=${curMonth}`);
+  const content = document.getElementById('leaderboard-content');
+
+  const sorted = Object.entries(data)
+    .map(([pid, s]) => ({ pid: parseInt(pid), ...s }))
+    .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+
+  if (!sorted.length) {
+    content.innerHTML = `<div class="empty-state">${T().noData}</div>`;
+    return;
+  }
+
+  const medals = ['🥇', '🥈', '🥉'];
+
+  content.innerHTML = sorted.map((s, i) => {
+    const pct = s.pct ?? 0;
+    const pi  = persons.findIndex(p => p.id === s.pid);
+    const rankEl = medals[i]
+      ? `<div class="lb-rank">${medals[i]}</div>`
+      : `<div class="lb-rank-num">#${i+1}</div>`;
+    return `
+      <div class="lb-row">
+        ${rankEl}
+        <div class="lb-info">
+          <div class="lb-name">
+            <div class="person-dot ${COLORS[pi >= 0 ? pi%COLORS.length : 0]}"></div>
+            ${s.name}
+          </div>
+          <div class="lb-bar-wrap">
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${pct}%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="lb-score">
+          <div class="lb-pct">${s.pct !== null ? s.pct+'%' : '—'}</div>
+          <div class="lb-counts">${s.yes} ✅&nbsp;&nbsp;${s.no} ❌</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Tamagotchi ────────────────────────────────────────
+const TAMA_FALLBACK = ['🥚','🐣','🐥','🐤','🦅','🦄','🔮','💎'];
+
+function renderTamaRoad(unlockedEvos) {
+  const road = document.getElementById('tama-road');
+  road.innerHTML = Array.from({length: 8}, (_, idx) => {
+    const evo = idx + 1;
+    const unlocked = unlockedEvos.has(evo);
+    const src = unlocked ? `assets/tama/evo${evo}.png` : `assets/tama/unknown.png`;
+    const fallback = unlocked ? TAMA_FALLBACK[evo-1] : '?';
+    const connector = evo < 8 ? `<div class="tama-road-connector"></div>` : '';
+    return `
+      <div class="tama-road-item">
+        <div class="tama-road-img" onclick="openEvoPreview('${src}','${fallback}')">
+          <img src="${src}" alt="${evo}" onerror="this.parentElement.innerHTML='${fallback}'">
+        </div>
+        <div class="tama-road-num">${evo}</div>
+      </div>
+      ${connector}`;
+  }).join('');
+}
+
+async function renderTamagotchi() {
+  const content = document.getElementById('tamagotchi-content');
+  content.innerHTML = `<div class="empty-state" style="padding:32px 0">…</div>`;
+  const data = await api('/tamagotchi');
+  const t = T();
+  if (!data.length) {
+    renderTamaRoad(new Set());
+    content.innerHTML = `<div class="empty-state">${t.noMembers}</div>`;
+    return;
+  }
+  const unlockedEvos = new Set(data.map(p => p.evo));
+  renderTamaRoad(unlockedEvos);
+  content.innerHTML = data.map((p, i) => {
+    const pct = p.pts_for_level > 0 ? Math.round(p.pts_in_level / p.pts_for_level * 100) : 100;
+    return `
+      <div class="tama-card">
+        <div class="tama-top">
+          <div class="tama-img-wrap">
+            <img src="assets/tama/evo${p.evo}.png" alt="evo${p.evo}"
+                 onerror="this.parentElement.innerHTML='${TAMA_FALLBACK[p.evo-1]}'">
+          </div>
+          <div class="tama-info">
+            <div class="tama-name">
+              <div class="person-dot ${COLORS[i%COLORS.length]}"></div>
+              ${p.name}
+              <span class="tama-evo-badge">${t.tamaEvo(p.evo)}</span>
+            </div>
+            <div class="tama-level">${t.tamaLevel(p.level)}</div>
+            <div class="tama-progress-wrap">
+              <div class="tama-bar-track">
+                <div class="tama-bar-fill" style="width:${pct}%"></div>
+              </div>
+              <div class="tama-pts">${t.tamaPts(p.pts_in_level, p.pts_for_level)}</div>
+            </div>
+            <div class="tama-next-evo">${p.next_evo_level ? t.tamaNextEvo(p.next_evo_level) : t.tamaMaxEvo()}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openEvoPreview(src, fallback) {
+  const box = document.getElementById('evo-preview-box');
+  box.innerHTML = `<img src="${src}" alt="" style="width:100%;height:100%;object-fit:contain"
+    onerror="this.parentElement.innerHTML='${fallback}'">`;
+  document.getElementById('evo-preview-overlay').classList.add('open');
+}
+function closeEvoPreview() {
+  document.getElementById('evo-preview-overlay').classList.remove('open');
+}
+
+// ── Settings ─────────────────────────────────────────
+function openSettings() {
+  renderSettingsBody();
+  document.getElementById('settings-overlay').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.remove('open');
+}
+function closeSettingsOverlay(e) {
+  if (e.target === document.getElementById('settings-overlay')) closeSettings();
+}
+
+function renderSettingsBody() {
+  const body = document.getElementById('settings-body');
+  const t = T();
+  // Subscription status string
+  let subStatusHtml = '';
+  if (subscription) {
+    let statusText, statusColor;
+    if (subscription.reason === 'paid' && subscription.paid_until) {
+      const d = new Date(subscription.paid_until);
+      const fmt = d.toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {day:'numeric', month:'long', year:'numeric'});
+      statusText  = t.subStatusActive(fmt);
+      statusColor = 'var(--green)';
+    } else if (subscription.reason === 'trial') {
+      statusText  = t.subStatusTrial(_fmtTimeLeft(subscription.trial_seconds_left, t));
+      statusColor = 'var(--accent)';
+    } else {
+      statusText  = t.subStatusExpired;
+      statusColor = 'var(--red)';
+    }
+    subStatusHtml = `
+      <div class="settings-section">
+        <div class="settings-section-title">${t.sectionSubscription}</div>
+        <div style="padding:4px 0 8px;font-size:14px;color:${statusColor}">${statusText}</div>
+        ${!subscription.active ? `<button class="db-btn" onclick="openPaywall();closeSettings()">💳 ${t.subBannerBtn}</button>` : ''}
+      </div>`;
+  }
+
+  const adminHtml = subscription?.is_admin ? `
+    <div class="settings-section">
+      <div class="settings-section-title">${t.sectionAdmin}</div>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+        <input type="checkbox" ${adminMode?'checked':''} onchange="toggleAdminMode(this.checked)"
+          style="width:18px;height:18px;accent-color:var(--accent)">
+        ${adminMode ? t.adminModeOn : t.adminModeOff}
+      </label>
+    </div>` : '';
+
+  body.innerHTML = `
+    ${subStatusHtml}
+    ${adminHtml}
+    <div class="settings-section">
+      <div class="settings-section-title">${t.sectionDatabase}</div>
+      <div class="db-row">
+        <button class="db-btn" onclick="exportDb()">⬇ ${t.btnExport}</button>
+        <button class="db-btn import-btn" onclick="document.getElementById('import-file-input').click()">⬆ ${t.btnImport}</button>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">${t.sectionLanguage}</div>
+      <div class="lang-picker">
+        <button class="lang-btn ${lang==='ru'?'active':''}" onclick="setLang('ru')">🇷🇺 Русский</button>
+        <button class="lang-btn ${lang==='en'?'active':''}" onclick="setLang('en')">🇬🇧 English</button>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">${t.sectionMembers}</div>
+      <div class="settings-list">
+        ${persons.map(p => `
+          <div class="settings-item">
+            <span>${p.name}</span>
+            <button class="del-btn" onclick="deletePerson(${p.id})">×</button>
+          </div>`).join('')}
+      </div>
+      <div class="add-row">
+        <input class="add-input" id="new-person-input" placeholder="${t.placeholderMember}" maxlength="20">
+        <button class="add-btn" onclick="addPerson()">${t.btnAdd}</button>
+      </div>
+    </div>
+    ${persons.map((p,pi) => `
+    <div class="settings-section">
+      <div class="settings-section-title">
+        <span class="${COLORS[pi%COLORS.length]}" style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;flex-shrink:0"></span>
+        ${t.habitsFor(p.name)}
+      </div>
+      <div class="settings-list">
+        ${habits.filter(h => h.person_id === p.id).map(h => `
+          <div class="settings-item">
+            <span>${h.title}</span>
+            <button class="del-btn" onclick="deleteHabit(${h.id})">×</button>
+          </div>`).join('')}
+      </div>
+      <div class="add-row">
+        <input class="add-input" id="new-habit-input-${p.id}" placeholder="${t.placeholderHabit}" maxlength="40">
+        <button class="add-btn" onclick="addHabit(${p.id})">${t.btnAdd}</button>
+      </div>
+    </div>`).join('')}
+  `;
+
+  document.getElementById('new-person-input')
+    .addEventListener('keydown', e => { if(e.key==='Enter') addPerson(); });
+  persons.forEach(p => {
+    const inp = document.getElementById("new-habit-input-"+p.id);
+    if (inp) inp.addEventListener('keydown', e => { if(e.key==='Enter') addHabit(p.id); });
+  });
+}
+
+async function addPerson() {
+  const inp = document.getElementById('new-person-input');
+  const name = inp.value.trim();
+  if (!name) return;
+  await api('/persons','POST',{name});
+  inp.value = '';
+  persons = await api('/persons');
+  render();
+  renderSettingsBody();
+}
+
+async function deletePerson(id) {
+  if (!confirm(T().confirmDeletePerson)) return;
+  await api(`/persons/${id}`,'DELETE');
+  persons = await api('/persons');
+  await loadChecks();
+  render();
+  renderSettingsBody();
+}
+
+async function addHabit(personId) {
+  const inp = document.getElementById(`new-habit-input-${personId}`);
+  const title = inp.value.trim();
+  if (!title) return;
+  await api('/habits','POST',{person_id: personId, title});
+  inp.value = '';
+  habits = await api('/habits');
+  render();
+  renderSettingsBody();
+}
+
+async function deleteHabit(id) {
+  if (!confirm(T().confirmDeleteHabit)) return;
+  await api(`/habits/${id}`,'DELETE');
+  habits = await api('/habits');
+  await loadChecks();
+  render();
+  renderSettingsBody();
+}
+
+// ── Export / Import ───────────────────────────────────
+function exportDb() {
+  const params = new URLSearchParams({ init_data: TG_INIT_DATA });
+  if (URL_CHAT_ID) params.set('chat_id', URL_CHAT_ID);
+  const url = window.location.origin + '/api/export?' + params;
+  if (window.Telegram?.WebApp?.openLink) {
+    window.Telegram.WebApp.openLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+async function importDb() {
+  const input = document.getElementById('import-file-input');
+  const file = input.files[0];
+  if (!file) return;
+  if (!confirm(T().confirmImport)) { input.value = ''; return; }
+  const formData = new FormData();
+  formData.append('file', file);
+  const headers = {'X-Telegram-Init-Data': TG_INIT_DATA};
+  if (URL_CHAT_ID) headers['X-Chat-Id'] = URL_CHAT_ID;
+  const r = await fetch('/api/import', { method: 'POST', headers, body: formData });
+  input.value = '';
+  if (!r.ok) { alert(await r.text()); return; }
+  alert(T().importSuccess);
+  await loadAll();
+  render();
+}
+
+// ── Subscription ─────────────────────────────────────
+let subscription = null;
+let adminMode = false;
+
+function _fmtTimeLeft(seconds, t) {
+  if (seconds >= 86400) return t.subDaysLeft(Math.floor(seconds / 86400));
+  if (seconds >= 3600)  return t.subHoursLeft(Math.floor(seconds / 3600));
+  if (seconds >= 60)    return t.subMinutesLeft(Math.floor(seconds / 60));
+  return t.subSecondsLeft(Math.max(seconds, 0));
+}
+
+async function loadSubscription() {
+  try {
+    subscription = await api('/subscription');
+  } catch(e) {
+    subscription = {active: true, reason: 'trial', trial_seconds_left: 999999};
+  }
+  renderSubBanner();
+}
+
+function renderSubBanner() {
+  const t = T();
+  const banner = document.getElementById('sub-banner');
+  const text   = document.getElementById('sub-banner-text');
+  const btn    = document.getElementById('sub-banner-btn');
+  if (!subscription || subscription.reason === 'paid') {
+    banner.className = 'sub-banner';
+    return;
+  }
+  btn.textContent = t.subBannerBtn;
+  if (subscription.reason === 'trial') {
+    text.textContent = t.subTrialBanner(_fmtTimeLeft(subscription.trial_seconds_left, t));
+    banner.className = 'sub-banner trial show';
+  } else {
+    text.textContent = t.subExpiredBanner;
+    banner.className = 'sub-banner expired show';
+  }
+}
+
+// Re-fetch subscription from server every 10 seconds
+let _subCheckInterval = null;
+function startSubTimer() {
+  if (_subCheckInterval) clearInterval(_subCheckInterval);
+  _subCheckInterval = setInterval(() => loadSubscription(), 10000);
+}
+
+function isSubscribed() {
+  return adminMode || (subscription && subscription.active);
+}
+
+function toggleAdminMode(val) {
+  adminMode = val;
+  render();
+  renderSettingsBody();
+}
+
+function openPaywall() {
+  const t = T();
+  document.getElementById('paywall-title').textContent  = t.subPaywallTitle;
+  document.getElementById('paywall-desc').textContent   = t.subPaywallDesc;
+  document.getElementById('paywall-price').textContent  = '199 ₽ / 30 дней';
+  document.getElementById('paywall-btn').textContent    = t.subPaywallBtn;
+  document.getElementById('paywall-cancel').textContent = t.subPaywallCancel;
+  document.getElementById('paywall-overlay').classList.add('open');
+}
+function closePaywall() {
+  document.getElementById('paywall-overlay').classList.remove('open');
+}
+
+async function startPayment() {
+  const btn = document.getElementById('paywall-btn');
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res = await api('/create-payment', 'POST');
+    const twa = window.Telegram?.WebApp;
+    if (twa) twa.openLink(res.payment_url);
+    else window.open(res.payment_url, '_blank');
+  } catch(e) {
+    alert('Ошибка: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    document.getElementById('paywall-btn').textContent = T().subPaywallBtn;
+  }
+  closePaywall();
+}
+
+// ── Telegram Mini App init ────────────────────────────
+const twa = window.Telegram?.WebApp;
+if (twa) {
+  twa.ready();
+  twa.expand();
+}
+
+// ── Init ─────────────────────────────────────────────
+updateI18n();
+loadAll().then(render);
+loadSubscription().then(startSubTimer);
+</script>
+</body>
+</html>
