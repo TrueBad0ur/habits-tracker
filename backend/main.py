@@ -6,12 +6,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional
 from datetime import datetime, date, timezone, timedelta
 from collections import defaultdict
+from contextlib import contextmanager
 from zoneinfo import ZoneInfo
 import base64
 import hashlib
 import hmac
 import json
-import sqlite3
+import psycopg2
+import psycopg2.extras
+import psycopg2.errors
+from psycopg2.pool import ThreadedConnectionPool
+import time
 import os
 import uuid as uuid_lib
 import urllib.request as url_req
@@ -26,8 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_PATH = os.environ.get("DB_PATH", "/data/habits.db")
-BOT_DB_PATH = "/data/bot.db"
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
 LOGS_DIR = os.environ.get("LOGS_DIR", "/logs")
@@ -48,14 +51,141 @@ if not BOT_USERNAME and BOT_TOKEN:
     except Exception:
         pass
 
+_PG_DSN = dict(
+    host=os.environ.get("PG_HOST", "postgres"),
+    port=int(os.environ.get("PG_PORT", "5432")),
+    dbname=os.environ.get("PG_DB", "habits"),
+    user=os.environ.get("PG_USER", "habits"),
+    password=os.environ.get("PG_PASSWORD", ""),
+)
+
+_pool: ThreadedConnectionPool | None = None
+
+
+def _get_pool() -> ThreadedConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = ThreadedConnectionPool(minconn=1, maxconn=10, **_PG_DSN)
+    return _pool
+
+
+def get_db():
+    return _get_pool().getconn()
+
+
+def put_db(conn):
+    _get_pool().putconn(conn)
+
+
+@contextmanager
+def cursor(dict_rows: bool = True):
+    conn = get_db()
+    try:
+        cur_factory = psycopg2.extras.RealDictCursor if dict_rows else None
+        cur = conn.cursor(cursor_factory=cur_factory)
+        try:
+            yield conn, cur
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+    finally:
+        put_db(conn)
+
+
+def init_db():
+    for attempt in range(30):
+        try:
+            with cursor(dict_rows=False) as (conn, cur):
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS groups (
+                        chat_id BIGINT PRIMARY KEY,
+                        title   TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_groups (
+                        user_id BIGINT NOT NULL,
+                        chat_id BIGINT NOT NULL,
+                        PRIMARY KEY (user_id, chat_id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS config (
+                        key   TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS persons (
+                        id         SERIAL PRIMARY KEY,
+                        chat_id    BIGINT NOT NULL,
+                        name       TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(chat_id, name)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS habits (
+                        id         SERIAL PRIMARY KEY,
+                        person_id  INTEGER NOT NULL,
+                        title      TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(person_id, title),
+                        FOREIGN KEY(person_id) REFERENCES persons(id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS checks (
+                        id         SERIAL PRIMARY KEY,
+                        person_id  INTEGER NOT NULL,
+                        habit_id   INTEGER NOT NULL,
+                        check_date TEXT NOT NULL,
+                        status     TEXT CHECK(status IN ('yes','no')) NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(person_id, habit_id, check_date),
+                        FOREIGN KEY(person_id) REFERENCES persons(id),
+                        FOREIGN KEY(habit_id) REFERENCES habits(id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS subscriptions (
+                        user_id     BIGINT NOT NULL,
+                        chat_id     BIGINT NOT NULL,
+                        trial_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        paid_until  TIMESTAMPTZ,
+                        PRIMARY KEY (user_id, chat_id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS payments (
+                        payment_id TEXT PRIMARY KEY,
+                        user_id    BIGINT NOT NULL,
+                        chat_id    BIGINT NOT NULL,
+                        status     TEXT NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+            return
+        except Exception as e:
+            if attempt < 29:
+                time.sleep(1)
+            else:
+                raise RuntimeError(f"Could not connect to PostgreSQL after 30 attempts: {e}")
+
+
+init_db()
+
 
 def _get_group_title(chat_id: int) -> str | None:
     try:
-        conn = sqlite3.connect(BOT_DB_PATH)
-        row = conn.execute("SELECT title FROM groups WHERE chat_id=?", (chat_id,)).fetchone()
-        conn.close()
-        if row:
-            return row[0]
+        with cursor(dict_rows=False) as (conn, cur):
+            cur.execute("SELECT title FROM groups WHERE chat_id=%s", (chat_id,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
     except Exception:
         pass
     # Fallback: ask Telegram API directly and cache result
@@ -67,11 +197,11 @@ def _get_group_title(chat_id: int) -> str | None:
             title = data.get("result", {}).get("title")
             if title:
                 try:
-                    conn = sqlite3.connect(BOT_DB_PATH)
-                    conn.execute("CREATE TABLE IF NOT EXISTS groups (chat_id INTEGER PRIMARY KEY, title TEXT NOT NULL)")
-                    conn.execute("INSERT OR REPLACE INTO groups (chat_id, title) VALUES (?, ?)", (chat_id, title))
-                    conn.commit()
-                    conn.close()
+                    with cursor(dict_rows=False) as (conn, cur):
+                        cur.execute(
+                            "INSERT INTO groups (chat_id, title) VALUES (%s, %s) ON CONFLICT (chat_id) DO UPDATE SET title=EXCLUDED.title",
+                            (chat_id, title)
+                        )
                 except Exception:
                     pass
                 return title
@@ -189,70 +319,6 @@ class TelegramAuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(TelegramAuthMiddleware)
 
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
-
-
-def init_db():
-    conn = get_db()
-    c = conn.cursor()
-    c.executescript("""
-        CREATE TABLE IF NOT EXISTS persons (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
-            UNIQUE(chat_id, name)
-        );
-
-        CREATE TABLE IF NOT EXISTS habits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
-            UNIQUE(person_id, title),
-            FOREIGN KEY(person_id) REFERENCES persons(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS checks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_id INTEGER NOT NULL,
-            habit_id INTEGER NOT NULL,
-            check_date TEXT NOT NULL,
-            status TEXT CHECK(status IN ('yes','no')) NOT NULL,
-            updated_at TEXT DEFAULT (datetime('now')),
-            UNIQUE(person_id, habit_id, check_date),
-            FOREIGN KEY(person_id) REFERENCES persons(id),
-            FOREIGN KEY(habit_id) REFERENCES habits(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            user_id  INTEGER NOT NULL,
-            chat_id  INTEGER NOT NULL,
-            trial_start TEXT NOT NULL DEFAULT (datetime('now')),
-            paid_until  TEXT,
-            PRIMARY KEY (user_id, chat_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS payments (
-            payment_id TEXT PRIMARY KEY,
-            user_id    INTEGER NOT NULL,
-            chat_id    INTEGER NOT NULL,
-            status     TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-init_db()
-
-
 # ── Models ──────────────────────────────────────────
 
 class PersonCreate(BaseModel):
@@ -274,35 +340,31 @@ class CheckUpsert(BaseModel):
 @app.get("/api/persons")
 def get_persons(request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM persons WHERE chat_id=? ORDER BY id", (chat_id,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with cursor() as (conn, cur):
+        cur.execute("SELECT * FROM persons WHERE chat_id=%s ORDER BY id", (chat_id,))
+        return [dict(r) for r in cur.fetchall()]
 
 @app.post("/api/persons")
 def create_person(body: PersonCreate, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
     try:
-        conn.execute("INSERT INTO persons (chat_id, name) VALUES (?, ?)", (chat_id, body.name.strip()))
-        conn.commit()
-    except sqlite3.IntegrityError:
+        with cursor() as (conn, cur):
+            cur.execute("INSERT INTO persons (chat_id, name) VALUES (%s, %s)", (chat_id, body.name.strip()))
+    except psycopg2.errors.UniqueViolation:
         raise HTTPException(400, "Такой участник уже есть")
-    conn.close()
     log(chat_id, request.state.user_label, f"added person \"{body.name.strip()}\"")
     return {"ok": True}
 
 @app.delete("/api/persons/{person_id}")
 def delete_person(person_id: int, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    row = conn.execute("SELECT name FROM persons WHERE id=? AND chat_id=?", (person_id, chat_id)).fetchone()
-    person_name = row["name"] if row else f"id={person_id}"
-    conn.execute("DELETE FROM checks WHERE person_id=?", (person_id,))
-    conn.execute("DELETE FROM habits WHERE person_id=?", (person_id,))
-    conn.execute("DELETE FROM persons WHERE id=? AND chat_id=?", (person_id, chat_id))
-    conn.commit()
-    conn.close()
+    with cursor() as (conn, cur):
+        cur.execute("SELECT name FROM persons WHERE id=%s AND chat_id=%s", (person_id, chat_id))
+        row = cur.fetchone()
+        person_name = row["name"] if row else f"id={person_id}"
+        cur.execute("DELETE FROM checks WHERE person_id=%s", (person_id,))
+        cur.execute("DELETE FROM habits WHERE person_id=%s", (person_id,))
+        cur.execute("DELETE FROM persons WHERE id=%s AND chat_id=%s", (person_id, chat_id))
     log(chat_id, request.state.user_label, f"deleted person \"{person_name}\"")
     return {"ok": True}
 
@@ -312,57 +374,55 @@ def delete_person(person_id: int, request: Request):
 @app.get("/api/habits")
 def get_habits(request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT h.* FROM habits h
-        JOIN persons p ON h.person_id = p.id
-        WHERE p.chat_id = ?
-        ORDER BY h.person_id, h.id
-    """, (chat_id,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with cursor() as (conn, cur):
+        cur.execute("""
+            SELECT h.* FROM habits h
+            JOIN persons p ON h.person_id = p.id
+            WHERE p.chat_id = %s
+            ORDER BY h.person_id, h.id
+        """, (chat_id,))
+        return [dict(r) for r in cur.fetchall()]
 
 @app.post("/api/habits")
 def create_habit(body: HabitCreate, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    person = conn.execute(
-        "SELECT id FROM persons WHERE id=? AND chat_id=?", (body.person_id, chat_id)
-    ).fetchone()
-    if not person:
-        raise HTTPException(403, "Forbidden")
     try:
-        conn.execute(
-            "INSERT INTO habits (person_id, title) VALUES (?, ?)",
-            (body.person_id, body.title.strip())
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
+        with cursor() as (conn, cur):
+            cur.execute(
+                "SELECT id FROM persons WHERE id=%s AND chat_id=%s", (body.person_id, chat_id)
+            )
+            person = cur.fetchone()
+            if not person:
+                raise HTTPException(403, "Forbidden")
+            cur.execute(
+                "INSERT INTO habits (person_id, title) VALUES (%s, %s)",
+                (body.person_id, body.title.strip())
+            )
+            cur.execute("SELECT name FROM persons WHERE id=%s", (body.person_id,))
+            person_row = cur.fetchone()
+            person_name = person_row["name"] if person_row else f"id={body.person_id}"
+    except psycopg2.errors.UniqueViolation:
         raise HTTPException(400, "Такая привычка у этого участника уже есть")
-    person_row = conn.execute("SELECT name FROM persons WHERE id=?", (body.person_id,)).fetchone()
-    person_name = person_row["name"] if person_row else f"id={body.person_id}"
-    conn.close()
     log(chat_id, request.state.user_label, f"added habit \"{body.title.strip()}\" for person \"{person_name}\"")
     return {"ok": True}
 
 @app.delete("/api/habits/{habit_id}")
 def delete_habit(habit_id: int, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    row = conn.execute("SELECT title FROM habits WHERE id=?", (habit_id,)).fetchone()
-    habit_title = row["title"] if row else f"id={habit_id}"
-    conn.execute("""
-        DELETE FROM checks WHERE habit_id=? AND person_id IN (
-            SELECT id FROM persons WHERE chat_id=?
-        )
-    """, (habit_id, chat_id))
-    conn.execute("""
-        DELETE FROM habits WHERE id=? AND person_id IN (
-            SELECT id FROM persons WHERE chat_id=?
-        )
-    """, (habit_id, chat_id))
-    conn.commit()
-    conn.close()
+    with cursor() as (conn, cur):
+        cur.execute("SELECT title FROM habits WHERE id=%s", (habit_id,))
+        row = cur.fetchone()
+        habit_title = row["title"] if row else f"id={habit_id}"
+        cur.execute("""
+            DELETE FROM checks WHERE habit_id=%s AND person_id IN (
+                SELECT id FROM persons WHERE chat_id=%s
+            )
+        """, (habit_id, chat_id))
+        cur.execute("""
+            DELETE FROM habits WHERE id=%s AND person_id IN (
+                SELECT id FROM persons WHERE chat_id=%s
+            )
+        """, (habit_id, chat_id))
     log(chat_id, request.state.user_label, f"deleted habit \"{habit_title}\"")
     return {"ok": True}
 
@@ -372,44 +432,43 @@ def delete_habit(habit_id: int, request: Request):
 @app.get("/api/checks")
 def get_checks(year: int, month: int, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
     prefix = f"{year:04d}-{month:02d}"
-    rows = conn.execute("""
-        SELECT c.* FROM checks c
-        JOIN persons p ON c.person_id = p.id
-        WHERE p.chat_id = ? AND c.check_date LIKE ?
-    """, (chat_id, f"{prefix}%")).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with cursor() as (conn, cur):
+        cur.execute("""
+            SELECT c.* FROM checks c
+            JOIN persons p ON c.person_id = p.id
+            WHERE p.chat_id = %s AND c.check_date LIKE %s
+        """, (chat_id, f"{prefix}%"))
+        return [dict(r) for r in cur.fetchall()]
 
 @app.post("/api/checks")
 def upsert_check(body: CheckUpsert, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    person = conn.execute(
-        "SELECT id FROM persons WHERE id=? AND chat_id=?", (body.person_id, chat_id)
-    ).fetchone()
-    if not person:
-        raise HTTPException(403, "Forbidden")
-    habit_row = conn.execute("SELECT title FROM habits WHERE id=?", (body.habit_id,)).fetchone()
-    habit_title = habit_row["title"] if habit_row else f"id={body.habit_id}"
-    if body.status is None:
-        conn.execute(
-            "DELETE FROM checks WHERE person_id=? AND habit_id=? AND check_date=?",
-            (body.person_id, body.habit_id, body.check_date)
+    with cursor() as (conn, cur):
+        cur.execute(
+            "SELECT id FROM persons WHERE id=%s AND chat_id=%s", (body.person_id, chat_id)
         )
-        action = f"cleared \"{habit_title}\" on {body.check_date}"
-    else:
-        conn.execute("""
-            INSERT INTO checks (person_id, habit_id, check_date, status, updated_at)
-            VALUES (?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(person_id, habit_id, check_date)
-            DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at
-        """, (body.person_id, body.habit_id, body.check_date, body.status))
-        mark = "✅" if body.status == "yes" else "❌"
-        action = f"marked \"{habit_title}\" on {body.check_date} as {mark}"
-    conn.commit()
-    conn.close()
+        person = cur.fetchone()
+        if not person:
+            raise HTTPException(403, "Forbidden")
+        cur.execute("SELECT title FROM habits WHERE id=%s", (body.habit_id,))
+        habit_row = cur.fetchone()
+        habit_title = habit_row["title"] if habit_row else f"id={body.habit_id}"
+        if body.status is None:
+            cur.execute(
+                "DELETE FROM checks WHERE person_id=%s AND habit_id=%s AND check_date=%s",
+                (body.person_id, body.habit_id, body.check_date)
+            )
+            action = f"cleared \"{habit_title}\" on {body.check_date}"
+        else:
+            cur.execute("""
+                INSERT INTO checks (person_id, habit_id, check_date, status, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT(person_id, habit_id, check_date)
+                DO UPDATE SET status=EXCLUDED.status, updated_at=EXCLUDED.updated_at
+            """, (body.person_id, body.habit_id, body.check_date, body.status))
+            mark = "✅" if body.status == "yes" else "❌"
+            action = f"marked \"{habit_title}\" on {body.check_date} as {mark}"
     log(chat_id, request.state.user_label, action)
     return {"ok": True}
 
@@ -419,17 +478,16 @@ def upsert_check(body: CheckUpsert, request: Request):
 @app.get("/api/stats")
 def get_stats(year: int, month: int, request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
     prefix = f"{year:04d}-{month:02d}"
-    persons = [dict(r) for r in conn.execute(
-        "SELECT * FROM persons WHERE chat_id=? ORDER BY id", (chat_id,)
-    ).fetchall()]
-    checks = conn.execute("""
-        SELECT c.* FROM checks c
-        JOIN persons p ON c.person_id = p.id
-        WHERE p.chat_id = ? AND c.check_date LIKE ?
-    """, (chat_id, f"{prefix}%")).fetchall()
-    conn.close()
+    with cursor() as (conn, cur):
+        cur.execute("SELECT * FROM persons WHERE chat_id=%s ORDER BY id", (chat_id,))
+        persons = [dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT c.* FROM checks c
+            JOIN persons p ON c.person_id = p.id
+            WHERE p.chat_id = %s AND c.check_date LIKE %s
+        """, (chat_id, f"{prefix}%"))
+        checks = cur.fetchall()
 
     result = {}
     for p in persons:
@@ -450,15 +508,15 @@ def get_stats(year: int, month: int, request: Request):
 @app.get("/api/streaks")
 def get_streaks(request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT c.person_id, c.habit_id, c.check_date, c.status
-        FROM checks c
-        JOIN persons p ON c.person_id = p.id
-        WHERE p.chat_id = ?
-        ORDER BY c.person_id, c.habit_id, c.check_date
-    """, (chat_id,)).fetchall()
-    conn.close()
+    with cursor() as (conn, cur):
+        cur.execute("""
+            SELECT c.person_id, c.habit_id, c.check_date, c.status
+            FROM checks c
+            JOIN persons p ON c.person_id = p.id
+            WHERE p.chat_id = %s
+            ORDER BY c.person_id, c.habit_id, c.check_date
+        """, (chat_id,))
+        rows = cur.fetchall()
 
     groups = defaultdict(list)
     for r in rows:
@@ -469,23 +527,23 @@ def get_streaks(request: Request):
     for (pid, hid), entries in groups.items():
         entries.sort(key=lambda x: x[0])
         best = 0
-        cur = 0
+        cur_streak = 0
         prev_date = None
         for date_str, status in entries:
             if status != "yes":
                 prev_date = None
-                cur = 0
+                cur_streak = 0
                 continue
             d = date.fromisoformat(date_str)
             if prev_date is not None and (d - prev_date).days == 1:
-                cur += 1
+                cur_streak += 1
             else:
-                cur = 1
-            best = max(best, cur)
+                cur_streak = 1
+            best = max(best, cur_streak)
             prev_date = d
         if prev_date and (today - prev_date).days > 1:
-            cur = 0
-        result.append({"person_id": pid, "habit_id": hid, "current": cur, "best": best})
+            cur_streak = 0
+        result.append({"person_id": pid, "habit_id": hid, "current": cur_streak, "best": best})
     return result
 
 
@@ -494,21 +552,21 @@ def get_streaks(request: Request):
 @app.get("/api/export")
 def export_db(request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    persons = [dict(r) for r in conn.execute(
-        "SELECT id, name FROM persons WHERE chat_id=? ORDER BY id", (chat_id,)
-    ).fetchall()]
-    habits = [dict(r) for r in conn.execute("""
-        SELECT h.id, h.person_id, h.title FROM habits h
-        JOIN persons p ON h.person_id = p.id
-        WHERE p.chat_id = ? ORDER BY h.id
-    """, (chat_id,)).fetchall()]
-    checks = [dict(r) for r in conn.execute("""
-        SELECT c.person_id, c.habit_id, c.check_date, c.status FROM checks c
-        JOIN persons p ON c.person_id = p.id
-        WHERE p.chat_id = ?
-    """, (chat_id,)).fetchall()]
-    conn.close()
+    with cursor() as (conn, cur):
+        cur.execute("SELECT id, name FROM persons WHERE chat_id=%s ORDER BY id", (chat_id,))
+        persons = [dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT h.id, h.person_id, h.title FROM habits h
+            JOIN persons p ON h.person_id = p.id
+            WHERE p.chat_id = %s ORDER BY h.id
+        """, (chat_id,))
+        habits = [dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT c.person_id, c.habit_id, c.check_date, c.status FROM checks c
+            JOIN persons p ON c.person_id = p.id
+            WHERE p.chat_id = %s
+        """, (chat_id,))
+        checks = [dict(r) for r in cur.fetchall()]
     log(chat_id, request.state.user_label, "exported data")
     content = json.dumps({"persons": persons, "habits": habits, "checks": checks}, ensure_ascii=False, indent=2)
     return Response(
@@ -530,41 +588,42 @@ async def import_db(request: Request, file: UploadFile = File(...)):
     except Exception:
         raise HTTPException(400, "Invalid backup file")
 
-    conn = get_db()
     try:
-        conn.execute("DELETE FROM checks WHERE person_id IN (SELECT id FROM persons WHERE chat_id=?)", (chat_id,))
-        conn.execute("DELETE FROM habits WHERE person_id IN (SELECT id FROM persons WHERE chat_id=?)", (chat_id,))
-        conn.execute("DELETE FROM persons WHERE chat_id=?", (chat_id,))
+        with cursor() as (conn, cur):
+            cur.execute("DELETE FROM checks WHERE person_id IN (SELECT id FROM persons WHERE chat_id=%s)", (chat_id,))
+            cur.execute("DELETE FROM habits WHERE person_id IN (SELECT id FROM persons WHERE chat_id=%s)", (chat_id,))
+            cur.execute("DELETE FROM persons WHERE chat_id=%s", (chat_id,))
 
-        person_id_map = {}
-        for p in persons_src:
-            cur = conn.execute("INSERT INTO persons (chat_id, name) VALUES (?, ?)", (chat_id, p["name"]))
-            person_id_map[p["id"]] = cur.lastrowid
+            person_id_map = {}
+            for p in persons_src:
+                cur.execute("INSERT INTO persons (chat_id, name) VALUES (%s, %s) RETURNING id", (chat_id, p["name"]))
+                new_id = cur.fetchone()["id"]
+                person_id_map[p["id"]] = new_id
 
-        habit_id_map = {}
-        for h in habits_src:
-            new_pid = person_id_map.get(h["person_id"])
-            if new_pid is None:
-                continue
-            cur = conn.execute("INSERT INTO habits (person_id, title) VALUES (?, ?)", (new_pid, h["title"]))
-            habit_id_map[h["id"]] = cur.lastrowid
+            habit_id_map = {}
+            for h in habits_src:
+                new_pid = person_id_map.get(h["person_id"])
+                if new_pid is None:
+                    continue
+                cur.execute("INSERT INTO habits (person_id, title) VALUES (%s, %s) RETURNING id", (new_pid, h["title"]))
+                new_id = cur.fetchone()["id"]
+                habit_id_map[h["id"]] = new_id
 
-        for c in checks_src:
-            new_pid = person_id_map.get(c["person_id"])
-            new_hid = habit_id_map.get(c["habit_id"])
-            if new_pid is None or new_hid is None:
-                continue
-            conn.execute("""
-                INSERT OR REPLACE INTO checks (person_id, habit_id, check_date, status, updated_at)
-                VALUES (?, ?, ?, ?, datetime('now'))
-            """, (new_pid, new_hid, c["check_date"], c["status"]))
-
-        conn.commit()
+            for c in checks_src:
+                new_pid = person_id_map.get(c["person_id"])
+                new_hid = habit_id_map.get(c["habit_id"])
+                if new_pid is None or new_hid is None:
+                    continue
+                cur.execute("""
+                    INSERT INTO checks (person_id, habit_id, check_date, status, updated_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                    ON CONFLICT(person_id, habit_id, check_date)
+                    DO UPDATE SET status=EXCLUDED.status, updated_at=EXCLUDED.updated_at
+                """, (new_pid, new_hid, c["check_date"], c["status"]))
+    except HTTPException:
+        raise
     except Exception as e:
-        conn.rollback()
-        conn.close()
         raise HTTPException(400, f"Import failed: {e}")
-    conn.close()
     log(chat_id, request.state.user_label, "imported data")
     return {"ok": True}
 
@@ -636,41 +695,52 @@ def _compute_tama(total_pts: int) -> dict:
 @app.get("/api/tamagotchi")
 def get_tamagotchi(request: Request):
     chat_id = request.state.chat_id
-    conn = get_db()
-    persons = [dict(r) for r in conn.execute(
-        "SELECT id, name FROM persons WHERE chat_id=? ORDER BY id", (chat_id,)
-    ).fetchall()]
+    with cursor() as (conn, cur):
+        cur.execute("SELECT id, name FROM persons WHERE chat_id=%s ORDER BY id", (chat_id,))
+        persons = [dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT person_id, COUNT(*) AS yes_count
+            FROM checks
+            WHERE person_id = ANY(%s) AND status = 'yes'
+            GROUP BY person_id
+        """, ([p["id"] for p in persons],))
+        yes_counts = {r["person_id"]: r["yes_count"] for r in cur.fetchall()}
+
     result = []
     for p in persons:
-        yes_count = conn.execute(
-            "SELECT COUNT(*) FROM checks WHERE person_id=? AND status='yes'", (p["id"],)
-        ).fetchone()[0]
-        tama = _compute_tama(yes_count)
+        tama = _compute_tama(yes_counts.get(p["id"], 0))
         tama["person_id"] = p["id"]
         tama["name"] = p["name"]
         result.append(tama)
-    conn.close()
     return result
 
 
 # ── Subscriptions ─────────────────────────────────────
 
 def _get_or_create_sub(user_id: int, chat_id: int) -> dict:
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM subscriptions WHERE user_id=? AND chat_id=?", (user_id, chat_id)
-    ).fetchone()
-    if not row:
-        conn.execute(
-            "INSERT INTO subscriptions (user_id, chat_id, trial_start) VALUES (?, ?, datetime('now'))",
-            (user_id, chat_id)
+    with cursor() as (conn, cur):
+        cur.execute(
+            "SELECT * FROM subscriptions WHERE user_id=%s AND chat_id=%s", (user_id, chat_id)
         )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM subscriptions WHERE user_id=? AND chat_id=?", (user_id, chat_id)
-        ).fetchone()
-    conn.close()
-    return dict(row)
+        row = cur.fetchone()
+        if not row:
+            cur.execute(
+                "INSERT INTO subscriptions (user_id, chat_id, trial_start) VALUES (%s, %s, NOW())",
+                (user_id, chat_id)
+            )
+            cur.execute(
+                "SELECT * FROM subscriptions WHERE user_id=%s AND chat_id=%s", (user_id, chat_id)
+            )
+            row = cur.fetchone()
+        return dict(row)
+
+
+def _to_utc(val) -> datetime:
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            return val.replace(tzinfo=timezone.utc)
+        return val.astimezone(timezone.utc)
+    return datetime.fromisoformat(str(val)).replace(tzinfo=timezone.utc)
 
 
 def _sub_status(sub: dict) -> dict:
@@ -678,7 +748,7 @@ def _sub_status(sub: dict) -> dict:
 
     # Check paid subscription first
     if sub.get("paid_until"):
-        paid_until = datetime.fromisoformat(sub["paid_until"]).replace(tzinfo=timezone.utc)
+        paid_until = _to_utc(sub["paid_until"])
         if now < paid_until:
             return {
                 "active": True,
@@ -688,7 +758,7 @@ def _sub_status(sub: dict) -> dict:
             }
 
     # Check trial
-    trial_start = datetime.fromisoformat(sub["trial_start"]).replace(tzinfo=timezone.utc)
+    trial_start = _to_utc(sub["trial_start"])
     trial_end = trial_start + timedelta(seconds=TRIAL_SECONDS)
     if now < trial_end:
         seconds_left = int((trial_end - now).total_seconds())
@@ -746,13 +816,11 @@ def create_payment(request: Request):
     payment_id  = data["id"]
     payment_url = data["confirmation"]["confirmation_url"]
 
-    conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO payments (payment_id, user_id, chat_id, status) VALUES (?, ?, ?, 'pending')",
-        (payment_id, user_id, chat_id)
-    )
-    conn.commit()
-    conn.close()
+    with cursor() as (conn, cur):
+        cur.execute(
+            "INSERT INTO payments (payment_id, user_id, chat_id, status) VALUES (%s, %s, %s, 'pending') ON CONFLICT (payment_id) DO UPDATE SET status='pending'",
+            (payment_id, user_id, chat_id)
+        )
 
     return {"payment_url": payment_url}
 
@@ -795,32 +863,31 @@ async def yookassa_webhook(request: Request):
             return {"ok": True}
 
     # Extend subscription by 30 days
-    conn = get_db()
-    sub = conn.execute(
-        "SELECT paid_until FROM subscriptions WHERE user_id=? AND chat_id=?",
-        (user_id, chat_id)
-    ).fetchone()
+    with cursor() as (conn, cur):
+        cur.execute(
+            "SELECT paid_until FROM subscriptions WHERE user_id=%s AND chat_id=%s",
+            (user_id, chat_id)
+        )
+        sub = cur.fetchone()
 
-    now = datetime.now(timezone.utc)
-    base = now
-    if sub and sub["paid_until"]:
-        existing = datetime.fromisoformat(sub["paid_until"]).replace(tzinfo=timezone.utc)
-        if existing > now:
-            base = existing
-    new_paid_until = (base + timedelta(days=30)).isoformat()
+        now = datetime.now(timezone.utc)
+        base = now
+        if sub and sub["paid_until"]:
+            existing = _to_utc(sub["paid_until"])
+            if existing > now:
+                base = existing
+        new_paid_until = base + timedelta(days=30)
+        paid_date = new_paid_until.strftime("%Y-%m-%d")
 
-    conn.execute("""
-        INSERT INTO subscriptions (user_id, chat_id, trial_start, paid_until)
-        VALUES (?, ?, datetime('now'), ?)
-        ON CONFLICT(user_id, chat_id) DO UPDATE SET paid_until=excluded.paid_until
-    """, (user_id, chat_id, new_paid_until))
-    conn.execute("UPDATE payments SET status='succeeded' WHERE payment_id=?", (payment_id,))
-    conn.commit()
-    conn.close()
+        cur.execute("""
+            INSERT INTO subscriptions (user_id, chat_id, trial_start, paid_until)
+            VALUES (%s, %s, NOW(), %s)
+            ON CONFLICT(user_id, chat_id) DO UPDATE SET paid_until=EXCLUDED.paid_until
+        """, (user_id, chat_id, new_paid_until))
+        cur.execute("UPDATE payments SET status='succeeded' WHERE payment_id=%s", (payment_id,))
 
     # Notify group chat
     if BOT_TOKEN and chat_id < 0:
-        paid_date = new_paid_until[:10]  # YYYY-MM-DD
         # Get user display name
         user_name = f"id{user_id}"
         try:

@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import aiosqlite
+import asyncpg
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import CommandStart, CommandObject
@@ -18,10 +18,24 @@ from config import BOT_TOKEN, WEBAPP_URL
 
 logging.basicConfig(level=logging.INFO)
 
-BOT_DB = "/data/bot.db"
 LOGS_DIR = "/logs"
 ENABLE_LOGGING = os.environ.get("ENABLE_LOGGING", "true").lower() == "true"
 _TZ = ZoneInfo(os.environ.get("TZ", "UTC"))
+
+_pg_pool: asyncpg.Pool | None = None
+
+
+async def get_pg_pool() -> asyncpg.Pool:
+    global _pg_pool
+    if _pg_pool is None:
+        _pg_pool = await asyncpg.create_pool(
+            host=os.environ.get("PG_HOST", "postgres"),
+            port=int(os.environ.get("PG_PORT", "5432")),
+            database=os.environ.get("PG_DB", "habits"),
+            user=os.environ.get("PG_USER", "habits"),
+            password=os.environ.get("PG_PASSWORD", ""),
+        )
+    return _pg_pool
 
 
 def _log_path(chat_id: int) -> str:
@@ -62,74 +76,71 @@ class MessageLogMiddleware(BaseMiddleware):
 
 
 async def init_bot_db():
-    async with aiosqlite.connect(BOT_DB) as db:
-        await db.executescript("""
-            CREATE TABLE IF NOT EXISTS groups (
-                chat_id INTEGER PRIMARY KEY,
-                title   TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS user_groups (
-                user_id INTEGER NOT NULL,
-                chat_id INTEGER NOT NULL,
-                PRIMARY KEY (user_id, chat_id)
-            );
-            CREATE TABLE IF NOT EXISTS config (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-        """)
-        await db.commit()
+    pool = await get_pg_pool()
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            chat_id BIGINT PRIMARY KEY,
+            title   TEXT NOT NULL
+        )
+    """)
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS user_groups (
+            user_id BIGINT NOT NULL,
+            chat_id BIGINT NOT NULL,
+            PRIMARY KEY (user_id, chat_id)
+        )
+    """)
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS config (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
 
 
 async def get_config(key: str) -> str | None:
-    async with aiosqlite.connect(BOT_DB) as db:
-        row = await (await db.execute("SELECT value FROM config WHERE key=?", (key,))).fetchone()
-        return row[0] if row else None
+    pool = await get_pg_pool()
+    row = await pool.fetchrow("SELECT value FROM config WHERE key=$1", key)
+    return row["value"] if row else None
 
 
 async def set_config(key: str, value: str):
-    async with aiosqlite.connect(BOT_DB) as db:
-        await db.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
-        await db.commit()
+    pool = await get_pg_pool()
+    await pool.execute(
+        "INSERT INTO config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+        key, value
+    )
 
 
 async def save_group(chat_id: int, title: str):
-    async with aiosqlite.connect(BOT_DB) as db:
-        await db.execute(
-            "INSERT INTO groups (chat_id, title) VALUES (?, ?)"
-            " ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
-            (chat_id, title),
-        )
-        await db.commit()
+    pool = await get_pg_pool()
+    await pool.execute(
+        "INSERT INTO groups (chat_id, title) VALUES ($1, $2) ON CONFLICT (chat_id) DO UPDATE SET title=EXCLUDED.title",
+        chat_id, title
+    )
 
 
 async def link_user_group(user_id: int, chat_id: int):
-    async with aiosqlite.connect(BOT_DB) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO user_groups (user_id, chat_id) VALUES (?, ?)",
-            (user_id, chat_id),
-        )
-        await db.commit()
+    pool = await get_pg_pool()
+    await pool.execute(
+        "INSERT INTO user_groups (user_id, chat_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        user_id, chat_id
+    )
 
 
 async def get_user_groups(user_id: int) -> list[dict]:
-    async with aiosqlite.connect(BOT_DB) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("""
-            SELECT g.chat_id, g.title FROM groups g
-            JOIN user_groups ug ON g.chat_id = ug.chat_id
-            WHERE ug.user_id = ?
-        """, (user_id,))
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+    pool = await get_pg_pool()
+    rows = await pool.fetch(
+        "SELECT g.chat_id, g.title FROM groups g JOIN user_groups ug ON g.chat_id=ug.chat_id WHERE ug.user_id=$1",
+        user_id
+    )
+    return [dict(r) for r in rows]
 
 
 async def get_group_title(chat_id: int) -> str | None:
-    async with aiosqlite.connect(BOT_DB) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT title FROM groups WHERE chat_id=?", (chat_id,))
-        row = await cursor.fetchone()
-        return row["title"] if row else None
+    pool = await get_pg_pool()
+    row = await pool.fetchrow("SELECT title FROM groups WHERE chat_id=$1", chat_id)
+    return row["title"] if row else None
 
 
 async def main():

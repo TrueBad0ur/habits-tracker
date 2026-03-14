@@ -1,14 +1,30 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB}
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_PATH: /data/habits.db
       LOGS_DIR: /logs
     volumes:
-      - ./data:/data
       - ./logs:/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     image: nginx:alpine
@@ -27,8 +43,11 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./data:/data
       - ./logs:/logs
       - ./assets:/app/assets:ro
     depends_on:
-      - frontend
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
