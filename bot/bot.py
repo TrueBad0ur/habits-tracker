@@ -1,10 +1,16 @@
 import asyncio
+import json
 import logging
 import os
+import ssl
+from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import asyncpg
+import certifi
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import CommandStart, CommandObject
@@ -15,6 +21,27 @@ from aiogram.types import (
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
+
+
+class PersistentAiohttpSession(AiohttpSession):
+    """Keeps ClientSession alive across requests to avoid repeated TLS handshakes."""
+    _client_session: aiohttp.ClientSession | None = None
+
+    @asynccontextmanager
+    async def create_session(self) -> AsyncGenerator[aiohttp.ClientSession, None]:
+        if self._client_session is None or self._client_session.closed:
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context, keepalive_timeout=300, limit=10)
+            self._client_session = aiohttp.ClientSession(
+                connector=connector,
+                json_serialize=json.dumps,
+            )
+        yield self._client_session
+
+    async def close(self) -> None:
+        if self._client_session and not self._client_session.closed:
+            await self._client_session.close()
+        await super().close()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -146,7 +173,7 @@ async def get_group_title(chat_id: int) -> str | None:
 async def main():
     await init_bot_db()
 
-    session = AiohttpSession(timeout=180)
+    session = PersistentAiohttpSession(timeout=180)
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
     dp.update.outer_middleware(MessageLogMiddleware())
@@ -166,15 +193,10 @@ async def main():
         user_label = format_user(message.from_user)
 
         if message.chat.type in ("group", "supergroup"):
-            import time as _t
-            _t0 = _t.monotonic()
             is_first = await get_group_title(message.chat.id) is None
-            logging.info("get_group_title: %.3fs", _t.monotonic() - _t0); _t0 = _t.monotonic()
             await save_group(message.chat.id, message.chat.title or str(message.chat.id))
-            logging.info("save_group: %.3fs", _t.monotonic() - _t0); _t0 = _t.monotonic()
             miniapp_link = f"https://t.me/{me.username}?startapp=g{abs(message.chat.id)}"
             log(message.chat.id, user_label, f"used /start in group \"{message.chat.title}\"")
-            logging.info("log(): %.3fs", _t.monotonic() - _t0); _t0 = _t.monotonic()
             markup = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="Открыть трекер", url=miniapp_link)
             ]])
@@ -192,14 +214,12 @@ async def main():
                     reply_markup=markup,
                     parse_mode="HTML",
                 )
-                logging.info("answer(first): %.3fs", _t.monotonic() - _t0)
             else:
                 await message.answer(
                     f"Трекер привычек для <b>{message.chat.title}</b>:",
                     reply_markup=markup,
                     parse_mode="HTML",
                 )
-                logging.info("answer(repeat): %.3fs", _t.monotonic() - _t0)
         else:
             args = command.args or ""
             if args.startswith("g"):
