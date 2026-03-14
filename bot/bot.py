@@ -166,10 +166,15 @@ async def main():
         user_label = format_user(message.from_user)
 
         if message.chat.type in ("group", "supergroup"):
+            import time as _t
+            _t0 = _t.monotonic()
             is_first = await get_group_title(message.chat.id) is None
+            logging.info("get_group_title: %.3fs", _t.monotonic() - _t0); _t0 = _t.monotonic()
             await save_group(message.chat.id, message.chat.title or str(message.chat.id))
+            logging.info("save_group: %.3fs", _t.monotonic() - _t0); _t0 = _t.monotonic()
             miniapp_link = f"https://t.me/{me.username}?startapp=g{abs(message.chat.id)}"
             log(message.chat.id, user_label, f"used /start in group \"{message.chat.title}\"")
+            logging.info("log(): %.3fs", _t.monotonic() - _t0); _t0 = _t.monotonic()
             markup = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="Открыть трекер", url=miniapp_link)
             ]])
@@ -183,16 +188,18 @@ async def main():
                     "Habits, streaks, leaderboard"
                 )
                 await message.answer(
-                        welcome_caption,
-                        reply_markup=markup,
-                        parse_mode="HTML",
-                    )
+                    welcome_caption,
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+                logging.info("answer(first): %.3fs", _t.monotonic() - _t0)
             else:
                 await message.answer(
                     f"Трекер привычек для <b>{message.chat.title}</b>:",
                     reply_markup=markup,
                     parse_mode="HTML",
                 )
+                logging.info("answer(repeat): %.3fs", _t.monotonic() - _t0)
         else:
             args = command.args or ""
             if args.startswith("g"):
