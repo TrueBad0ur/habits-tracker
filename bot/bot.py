@@ -11,7 +11,7 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
-    Update, FSInputFile,
+    Update,
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
@@ -183,34 +183,20 @@ async def main():
                     "Habits, streaks, leaderboard"
                 )
                 cached_id = await get_config("hello_photo_file_id")
-                hello_path = "assets/hello.jpg"
                 sent_photo = False
-                if cached_id:
-                    try:
-                        await message.answer_photo(
-                            photo=cached_id,
-                            caption=welcome_caption,
-                            reply_markup=markup,
-                            parse_mode="HTML",
-                        )
-                        sent_photo = True
-                    except Exception:
-                        logging.exception("Failed to send photo by cached_id")
-                if not sent_photo and os.path.exists(hello_path):
-                    try:
-                        sent = await message.answer_photo(
-                            photo=FSInputFile(hello_path),
-                            caption=welcome_caption,
-                            reply_markup=markup,
-                            parse_mode="HTML",
-                        )
+                photo_src = cached_id or f"{WEBAPP_URL}/assets/hello.jpg"
+                try:
+                    sent = await message.answer_photo(
+                        photo=photo_src,
+                        caption=welcome_caption,
+                        reply_markup=markup,
+                        parse_mode="HTML",
+                    )
+                    if not cached_id:
                         await set_config("hello_photo_file_id", sent.photo[-1].file_id)
-                        sent_photo = True
-                    except Exception:
-                        logging.exception("Failed to send photo from file %s", hello_path)
-                else:
-                    if not sent_photo:
-                        logging.warning("hello.jpg not found at path: %s (cwd=%s)", hello_path, os.getcwd())
+                    sent_photo = True
+                except Exception:
+                    logging.exception("Failed to send photo (src=%s)", photo_src)
                 if not sent_photo:
                     await message.answer(
                         welcome_caption,
