@@ -806,7 +806,7 @@ body {
 </div>
 
 <!-- Tab bar -->
-<div style="text-align:center;font-size:10px;color:var(--muted);padding:4px 0 2px;letter-spacing:.05em">v1.7</div>
+<div style="text-align:center;font-size:10px;color:var(--muted);padding:4px 0 2px;letter-spacing:.05em">v1.8</div>
 <nav class="tab-bar">
   <button class="tab-item active" data-tab="calendar" onclick="switchTab('calendar')">
     <span class="tab-icon">📅</span>
@@ -1353,17 +1353,20 @@ function tamaImg(tamaType, evo) {
   return `assets/solo/tama${tamaType}/tama${tamaType}-evo${evo}.png`;
 }
 
-function renderTamaRoad(unlockedEvos, roadTamaType) {
+let _tamaData = [];
+
+function renderTamaRoad(tamaType, currentEvo) {
   const road = document.getElementById('tama-road');
   road.innerHTML = Array.from({length: 8}, (_, idx) => {
     const evo = idx + 1;
-    const unlocked = unlockedEvos.has(evo);
-    const src = unlocked ? tamaImg(roadTamaType, evo) : TAMA_UNKNOWN;
+    const unlocked = evo <= currentEvo;
+    const isCurrent = evo === currentEvo;
+    const src = unlocked ? tamaImg(tamaType, evo) : TAMA_UNKNOWN;
     const fallback = unlocked ? TAMA_FALLBACK[evo-1] : '?';
     const connector = evo < 8 ? `<div class="tama-road-connector"></div>` : '';
     return `
       <div class="tama-road-item">
-        <div class="tama-road-img" onclick="openEvoPreview('${src}','${fallback}')">
+        <div class="tama-road-img${isCurrent ? ' current' : ''}" onclick="openEvoPreview('${src}','${fallback}')">
           <img src="${src}" alt="${evo}" onerror="this.parentElement.innerHTML='${fallback}'">
         </div>
         <div class="tama-road-num">${evo}</div>
@@ -1372,25 +1375,31 @@ function renderTamaRoad(unlockedEvos, roadTamaType) {
   }).join('');
 }
 
+function selectTamaCard(i) {
+  document.querySelectorAll('.tama-card').forEach((el, idx) => {
+    el.style.borderColor = idx === i ? 'var(--accent)' : '';
+  });
+  const p = _tamaData[i];
+  renderTamaRoad((i % NUM_TAMAS) + 1, p.evo);
+}
+
 async function renderTamagotchi() {
   const content = document.getElementById('tamagotchi-content');
   content.innerHTML = `<div class="empty-state" style="padding:32px 0">…</div>`;
-  const data = await api('/tamagotchi');
+  _tamaData = await api('/tamagotchi');
   const t = T();
-  if (!data.length) {
-    renderTamaRoad(new Set(), 1);
+  if (!_tamaData.length) {
+    renderTamaRoad(1, 0);
     content.innerHTML = `<div class="empty-state">${t.noMembers}</div>`;
     return;
   }
-  const unlockedEvos = new Set(data.map(p => p.evo));
-  // Road shows the species of the first person
-  renderTamaRoad(unlockedEvos, 1);
-  content.innerHTML = data.map((p, i) => {
+  renderTamaRoad(1, _tamaData[0].evo);
+  content.innerHTML = _tamaData.map((p, i) => {
     const tamaType = (i % NUM_TAMAS) + 1;
     const pct = p.pts_for_level > 0 ? Math.round(p.pts_in_level / p.pts_for_level * 100) : 100;
     const imgSrc = tamaImg(tamaType, p.evo);
     return `
-      <div class="tama-card">
+      <div class="tama-card" onclick="selectTamaCard(${i})" style="cursor:pointer${i === 0 ? ';border-color:var(--accent)' : ''}">
         <div class="tama-top">
           <div class="tama-img-wrap">
             <img src="${imgSrc}" alt="evo${p.evo}"
