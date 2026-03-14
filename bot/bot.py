@@ -3,9 +3,7 @@ import json
 import logging
 import os
 import ssl
-from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -27,8 +25,7 @@ class PersistentAiohttpSession(AiohttpSession):
     """Keeps ClientSession alive across requests to avoid repeated TLS handshakes."""
     _client_session: aiohttp.ClientSession | None = None
 
-    @asynccontextmanager
-    async def create_session(self) -> AsyncGenerator[aiohttp.ClientSession, None]:
+    async def create_session(self) -> aiohttp.ClientSession:
         if self._client_session is None or self._client_session.closed:
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context, keepalive_timeout=300, limit=10)
@@ -36,7 +33,7 @@ class PersistentAiohttpSession(AiohttpSession):
                 connector=connector,
                 json_serialize=json.dumps,
             )
-        yield self._client_session
+        return self._client_session
 
     async def close(self) -> None:
         if self._client_session and not self._client_session.closed:
