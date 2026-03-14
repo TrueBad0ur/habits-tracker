@@ -195,7 +195,7 @@ async def main():
                         )
                         sent_photo = True
                     except Exception:
-                        pass
+                        logging.exception("Failed to send photo by cached_id")
                 if not sent_photo and os.path.exists(hello_path):
                     try:
                         sent = await message.answer_photo(
@@ -207,7 +207,10 @@ async def main():
                         await set_config("hello_photo_file_id", sent.photo[-1].file_id)
                         sent_photo = True
                     except Exception:
-                        pass
+                        logging.exception("Failed to send photo from file %s", hello_path)
+                else:
+                    if not sent_photo:
+                        logging.warning("hello.jpg not found at path: %s (cwd=%s)", hello_path, os.getcwd())
                 if not sent_photo:
                     await message.answer(
                         welcome_caption,
