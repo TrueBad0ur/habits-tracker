@@ -11,7 +11,7 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
-    Update,
+    Update, FSInputFile,
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
@@ -143,6 +143,34 @@ async def get_group_title(chat_id: int) -> str | None:
     return row["title"] if row else None
 
 
+ADMIN_USER_IDS = [
+    int(x) for x in os.environ.get("ADMIN_USER_IDS", "").split(",") if x.strip()
+]
+HELLO_PHOTO_PATH = "assets/hello.jpg"
+
+
+async def _warm_hello_photo(bot: Bot):
+    """Upload hello.jpg to admin on startup to get a cached file_id."""
+    if await get_config("hello_photo_file_id"):
+        return
+    if not ADMIN_USER_IDS or not os.path.exists(HELLO_PHOTO_PATH):
+        return
+    for attempt in range(5):
+        try:
+            sent = await bot.send_photo(
+                chat_id=ADMIN_USER_IDS[0],
+                photo=FSInputFile(HELLO_PHOTO_PATH),
+                caption="(hello photo cached — ignore)",
+            )
+            await set_config("hello_photo_file_id", sent.photo[-1].file_id)
+            logging.info("hello.jpg cached, file_id=%s", sent.photo[-1].file_id)
+            return
+        except Exception:
+            logging.exception("Attempt %d: failed to cache hello.jpg", attempt + 1)
+            await asyncio.sleep(2 ** attempt)
+    logging.warning("Could not cache hello.jpg after 5 attempts — photo will be skipped")
+
+
 async def main():
     await init_bot_db()
 
@@ -151,6 +179,7 @@ async def main():
     dp = Dispatcher()
     dp.update.outer_middleware(MessageLogMiddleware())
     me = await bot.get_me()
+    await _warm_hello_photo(bot)
 
     await bot.set_my_commands(
         [BotCommand(command="start", description="Открыть трекер привычек")],
