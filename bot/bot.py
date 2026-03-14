@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import asyncpg
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -143,43 +144,15 @@ async def get_group_title(chat_id: int) -> str | None:
     return row["title"] if row else None
 
 
-ADMIN_USER_IDS = [
-    int(x) for x in os.environ.get("ADMIN_USER_IDS", "").split(",") if x.strip()
-]
-HELLO_PHOTO_PATH = "assets/hello.jpg"
-
-
-async def _warm_hello_photo(bot: Bot):
-    """Upload hello.jpg to admin on startup to get a cached file_id."""
-    if await get_config("hello_photo_file_id"):
-        return
-    if not ADMIN_USER_IDS or not os.path.exists(HELLO_PHOTO_PATH):
-        return
-    for attempt in range(5):
-        try:
-            sent = await bot.send_photo(
-                chat_id=ADMIN_USER_IDS[0],
-                photo=FSInputFile(HELLO_PHOTO_PATH),
-                caption="(hello photo cached — ignore)",
-            )
-            await set_config("hello_photo_file_id", sent.photo[-1].file_id)
-            logging.info("hello.jpg cached, file_id=%s", sent.photo[-1].file_id)
-            return
-        except Exception:
-            logging.exception("Attempt %d: failed to cache hello.jpg", attempt + 1)
-            await asyncio.sleep(2 ** attempt)
-    logging.warning("Could not cache hello.jpg after 5 attempts — photo will be skipped")
-
-
 async def main():
     await init_bot_db()
 
-    session = AiohttpSession(timeout=180)
+    connector = aiohttp.TCPConnector(force_close=True)
+    session = AiohttpSession(connector=connector, timeout=180)
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
     dp.update.outer_middleware(MessageLogMiddleware())
     me = await bot.get_me()
-    await _warm_hello_photo(bot)
 
     await bot.set_my_commands(
         [BotCommand(command="start", description="Открыть трекер привычек")],
@@ -213,19 +186,31 @@ async def main():
                 )
                 cached_id = await get_config("hello_photo_file_id")
                 sent_photo = False
-                photo_src = cached_id or f"{WEBAPP_URL}/assets/hello.jpg"
-                try:
-                    sent = await message.answer_photo(
-                        photo=photo_src,
-                        caption=welcome_caption,
-                        reply_markup=markup,
-                        parse_mode="HTML",
-                    )
-                    if not cached_id:
-                        await set_config("hello_photo_file_id", sent.photo[-1].file_id)
-                    sent_photo = True
-                except Exception:
-                    logging.exception("Failed to send photo (src=%s)", photo_src)
+                hello_path = "assets/hello.jpg"
+                # Try cached file_id first, then upload from disk with retries
+                candidates = []
+                if cached_id:
+                    candidates.append(cached_id)
+                if os.path.exists(hello_path):
+                    candidates.append(FSInputFile(hello_path))
+                for photo_src in candidates:
+                    for attempt in range(3):
+                        try:
+                            sent = await message.answer_photo(
+                                photo=photo_src,
+                                caption=welcome_caption,
+                                reply_markup=markup,
+                                parse_mode="HTML",
+                            )
+                            if not cached_id:
+                                await set_config("hello_photo_file_id", sent.photo[-1].file_id)
+                            sent_photo = True
+                            break
+                        except Exception:
+                            logging.exception("Photo attempt %d failed (src=%s)", attempt + 1, photo_src)
+                            await asyncio.sleep(1)
+                    if sent_photo:
+                        break
                 if not sent_photo:
                     await message.answer(
                         welcome_caption,
