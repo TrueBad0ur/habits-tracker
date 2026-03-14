@@ -4,7 +4,6 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import aiohttp
 import asyncpg
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -12,7 +11,7 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
-    Update, FSInputFile,
+    Update, BufferedInputFile,
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
@@ -147,8 +146,7 @@ async def get_group_title(chat_id: int) -> str | None:
 async def main():
     await init_bot_db()
 
-    connector = aiohttp.TCPConnector(force_close=True)
-    session = AiohttpSession(connector=connector, timeout=180)
+    session = AiohttpSession(timeout=180)
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
     dp.update.outer_middleware(MessageLogMiddleware())
@@ -192,7 +190,8 @@ async def main():
                 if cached_id:
                     candidates.append(cached_id)
                 if os.path.exists(hello_path):
-                    candidates.append(FSInputFile(hello_path))
+                    with open(hello_path, "rb") as f:
+                        candidates.append(BufferedInputFile(f.read(), filename="hello.jpg"))
                 for photo_src in candidates:
                     for attempt in range(3):
                         try:
