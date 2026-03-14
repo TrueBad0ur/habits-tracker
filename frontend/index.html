@@ -806,7 +806,7 @@ body {
 </div>
 
 <!-- Tab bar -->
-<div style="text-align:center;font-size:10px;color:var(--muted);padding:4px 0 2px;letter-spacing:.05em">v1.0</div>
+<div style="text-align:center;font-size:10px;color:var(--muted);padding:4px 0 2px;letter-spacing:.05em">v1.7</div>
 <nav class="tab-bar">
   <button class="tab-item active" data-tab="calendar" onclick="switchTab('calendar')">
     <span class="tab-icon">📅</span>
@@ -1346,13 +1346,19 @@ async function renderLeaderboard() {
 
 // ── Tamagotchi ────────────────────────────────────────
 const TAMA_FALLBACK = ['🥚','🐣','🐥','🐤','🦅','🦄','🔮','💎'];
+const NUM_TAMAS = 6;
+const TAMA_UNKNOWN = 'assets/solo/unknown.png';
 
-function renderTamaRoad(unlockedEvos) {
+function tamaImg(tamaType, evo) {
+  return `assets/solo/tama${tamaType}/tama${tamaType}-evo${evo}.png`;
+}
+
+function renderTamaRoad(unlockedEvos, roadTamaType) {
   const road = document.getElementById('tama-road');
   road.innerHTML = Array.from({length: 8}, (_, idx) => {
     const evo = idx + 1;
     const unlocked = unlockedEvos.has(evo);
-    const src = unlocked ? `assets/tama/evo${evo}.png` : `assets/tama/unknown.png`;
+    const src = unlocked ? tamaImg(roadTamaType, evo) : TAMA_UNKNOWN;
     const fallback = unlocked ? TAMA_FALLBACK[evo-1] : '?';
     const connector = evo < 8 ? `<div class="tama-road-connector"></div>` : '';
     return `
@@ -1372,19 +1378,22 @@ async function renderTamagotchi() {
   const data = await api('/tamagotchi');
   const t = T();
   if (!data.length) {
-    renderTamaRoad(new Set());
+    renderTamaRoad(new Set(), 1);
     content.innerHTML = `<div class="empty-state">${t.noMembers}</div>`;
     return;
   }
   const unlockedEvos = new Set(data.map(p => p.evo));
-  renderTamaRoad(unlockedEvos);
+  // Road shows the species of the first person
+  renderTamaRoad(unlockedEvos, 1);
   content.innerHTML = data.map((p, i) => {
+    const tamaType = (i % NUM_TAMAS) + 1;
     const pct = p.pts_for_level > 0 ? Math.round(p.pts_in_level / p.pts_for_level * 100) : 100;
+    const imgSrc = tamaImg(tamaType, p.evo);
     return `
       <div class="tama-card">
         <div class="tama-top">
           <div class="tama-img-wrap">
-            <img src="assets/tama/evo${p.evo}.png" alt="evo${p.evo}"
+            <img src="${imgSrc}" alt="evo${p.evo}"
                  onerror="this.parentElement.innerHTML='${TAMA_FALLBACK[p.evo-1]}'">
           </div>
           <div class="tama-info">
