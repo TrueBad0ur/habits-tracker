@@ -13,7 +13,7 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
-    Update, FSInputFile,
+    Update,
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
@@ -146,18 +146,27 @@ async def get_group_title(chat_id: int) -> str | None:
 
 
 async def _send_photo_via_requests(
-    chat_id: int, photo_path: str, caption: str, reply_markup: InlineKeyboardMarkup, parse_mode: str = "HTML"
+    chat_id: int, photo: str, caption: str, reply_markup: InlineKeyboardMarkup, parse_mode: str = "HTML"
 ) -> dict:
-    """Send photo using requests library (bypasses aiohttp connection issues)."""
+    """Send photo via requests (bypasses aiohttp). photo is a file_id string or a local file path."""
     markup_json = json.dumps(reply_markup.model_dump())
+    is_file = os.path.exists(photo)
 
     def _do():
-        with open(photo_path, "rb") as f:
+        data = {"chat_id": str(chat_id), "caption": caption,
+                "parse_mode": parse_mode, "reply_markup": markup_json}
+        if is_file:
+            with open(photo, "rb") as f:
+                r = _req.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    data=data,
+                    files={"photo": ("photo.jpg", f, "image/jpeg")},
+                    timeout=60,
+                )
+        else:
             r = _req.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                data={"chat_id": str(chat_id), "caption": caption,
-                      "parse_mode": parse_mode, "reply_markup": markup_json},
-                files={"photo": ("photo.jpg", f, "image/jpeg")},
+                data={**data, "photo": photo},
                 timeout=60,
             )
         return r.json()
@@ -207,35 +216,23 @@ async def main():
                 cached_id = await get_config("hello_photo_file_id")
                 sent_photo = False
                 hello_path = "assets/hello.jpg"
-                # 1. Try sending via aiogram (uses cached file_id if available)
-                photo_src = cached_id or hello_path
                 if cached_id or os.path.exists(hello_path):
                     try:
-                        sent = await message.answer_photo(
-                            photo=cached_id if cached_id else FSInputFile(hello_path),
-                            caption=welcome_caption,
-                            reply_markup=markup,
-                            parse_mode="HTML",
-                        )
-                        if not cached_id:
-                            await set_config("hello_photo_file_id", sent.photo[-1].file_id)
-                        sent_photo = True
-                    except Exception:
-                        logging.exception("aiogram send_photo failed, falling back to requests")
-                # 2. Fallback: upload via requests (different HTTP stack, avoids aiohttp issues)
-                if not sent_photo and os.path.exists(hello_path):
-                    try:
                         result = await _send_photo_via_requests(
-                            message.chat.id, hello_path, welcome_caption, markup
+                            message.chat.id,
+                            cached_id or hello_path,
+                            welcome_caption,
+                            markup,
                         )
                         if result.get("ok"):
-                            file_id = result["result"]["photo"][-1]["file_id"]
-                            await set_config("hello_photo_file_id", file_id)
+                            if not cached_id:
+                                file_id = result["result"]["photo"][-1]["file_id"]
+                                await set_config("hello_photo_file_id", file_id)
                             sent_photo = True
                         else:
-                            logging.error("requests sendPhoto error: %s", result)
+                            logging.error("sendPhoto error: %s", result)
                     except Exception:
-                        logging.exception("requests send_photo also failed")
+                        logging.exception("send_photo failed")
                 if not sent_photo:
                     await message.answer(
                         welcome_caption,
