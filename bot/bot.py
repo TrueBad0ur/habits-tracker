@@ -11,7 +11,7 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
-    Update, FSInputFile,
+    Update,
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
@@ -182,25 +182,7 @@ async def main():
                     "Add to a group → /start → mini app\n"
                     "Habits, streaks, leaderboard"
                 )
-                cached_id = await get_config("hello_photo_file_id")
-                hello_path = "assets/hello.jpg"
-                sent_photo = False
-                photo = cached_id or (FSInputFile(hello_path) if os.path.exists(hello_path) else None)
-                if photo:
-                    try:
-                        sent = await message.answer_photo(
-                            photo=photo,
-                            caption=welcome_caption,
-                            reply_markup=markup,
-                            parse_mode="HTML",
-                        )
-                        if not cached_id:
-                            await set_config("hello_photo_file_id", sent.photo[-1].file_id)
-                        sent_photo = True
-                    except Exception:
-                        logging.exception("send_photo failed")
-                if not sent_photo:
-                    await message.answer(
+                await message.answer(
                         welcome_caption,
                         reply_markup=markup,
                         parse_mode="HTML",
