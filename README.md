@@ -1,4 +1,4 @@
-# Habits Tracker
+# Habits Tracker v2.0
 
 Telegram Mini App для отслеживания привычек в групповых чатах. Участники группы ведут общий календарь, смотрят стрики, ачивки и рейтинг.
 
@@ -136,6 +136,81 @@ telegram-bot-miniapp/
 ```
 [2026-03-07 12:00:00 MSK] Иван (@ivan, id=12345): added habit "Спорт" for person "Иван" in group 'My Group'
 [2026-03-07 12:01:00 MSK] Иван (@ivan, id=12345): marked "Спорт" on 2026-03-07 as ✅ in group 'My Group'
+```
+
+---
+
+## Управление подписками (psql)
+
+Подключиться к БД:
+```bash
+docker compose exec postgres psql -U habits -d habits
+```
+
+### Выдать подписку
+
+```sql
+-- На 30 дней
+INSERT INTO subscriptions (user_id, chat_id, paid_until)
+VALUES (<user_id>, <chat_id>, NOW() + INTERVAL '30 days')
+ON CONFLICT (user_id, chat_id) DO UPDATE SET paid_until = NOW() + INTERVAL '30 days';
+
+-- Навсегда (100 лет)
+INSERT INTO subscriptions (user_id, chat_id, paid_until)
+VALUES (<user_id>, <chat_id>, NOW() + INTERVAL '100 years')
+ON CONFLICT (user_id, chat_id) DO UPDATE SET paid_until = NOW() + INTERVAL '100 years';
+```
+
+### Проверить подписку
+
+```sql
+SELECT user_id, chat_id, trial_start, paid_until,
+       CASE WHEN paid_until > NOW() THEN 'active' ELSE 'expired' END AS status
+FROM subscriptions
+WHERE user_id = <user_id>;
+```
+
+### Продлить подписку
+
+```sql
+UPDATE subscriptions
+SET paid_until = paid_until + INTERVAL '30 days'
+WHERE user_id = <user_id> AND chat_id = <chat_id>;
+```
+
+### Обнулить (сбросить к триалу)
+
+```sql
+UPDATE subscriptions
+SET paid_until = NULL, trial_start = NOW()
+WHERE user_id = <user_id> AND chat_id = <chat_id>;
+```
+
+### Отозвать подписку
+
+```sql
+UPDATE subscriptions
+SET paid_until = NOW() - INTERVAL '1 second'
+WHERE user_id = <user_id> AND chat_id = <chat_id>;
+```
+
+### Список всех активных подписок
+
+```sql
+SELECT s.user_id, s.chat_id, g.title, s.paid_until
+FROM subscriptions s
+LEFT JOIN groups g ON g.chat_id = s.chat_id
+WHERE s.paid_until > NOW()
+ORDER BY s.paid_until;
+```
+
+### Посмотреть платежи
+
+```sql
+SELECT payment_id, user_id, chat_id, status, created_at
+FROM payments
+ORDER BY created_at DESC
+LIMIT 20;
 ```
 
 ---
