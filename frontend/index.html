@@ -1705,8 +1705,8 @@ async function loadAdminSubs() {
           : `<span style="color:#f44336">${t.adminSubExpired(fmt)}</span>`;
       }
       return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${s.group_title}</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">uid:${s.user_id} · ${statusHtml}</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${s.display_name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${statusHtml}</div>
         <div style="display:flex;gap:8px">
           <button class="db-btn" style="font-size:12px;padding:4px 10px" onclick="adminSubAction('reset',${s.user_id},${s.chat_id})">🔄 ${t.adminSubReset}</button>
           <button class="db-btn" style="font-size:12px;padding:4px 10px" onclick="adminSubAction('extend',${s.user_id},${s.chat_id})">➕ ${t.adminSubExtend}</button>

@@ -168,6 +168,15 @@ def init_db():
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id    BIGINT PRIMARY KEY,
+                        username   TEXT,
+                        first_name TEXT,
+                        last_name  TEXT,
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
             return
         except Exception as e:
             if attempt < 29:
@@ -270,6 +279,37 @@ def extract_user_id(parsed: dict) -> int | None:
     return None
 
 
+def extract_user_info(parsed: dict) -> dict | None:
+    user_str = parsed.get("user")
+    if user_str:
+        try:
+            u = json.loads(user_str)
+            return {
+                "user_id": int(u["id"]),
+                "username": u.get("username"),
+                "first_name": u.get("first_name"),
+                "last_name": u.get("last_name"),
+            }
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass
+    return None
+
+
+def upsert_user(user_info: dict):
+    try:
+        with cursor() as (_, cur):
+            cur.execute("""
+                INSERT INTO users (user_id, username, first_name, last_name, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (user_id) DO UPDATE
+                SET username=EXCLUDED.username, first_name=EXCLUDED.first_name,
+                    last_name=EXCLUDED.last_name, updated_at=NOW()
+            """, (user_info["user_id"], user_info.get("username"),
+                  user_info.get("first_name"), user_info.get("last_name")))
+    except Exception:
+        pass
+
+
 def extract_user_label(parsed: dict) -> str:
     user_str = parsed.get("user", "")
     if user_str:
@@ -313,6 +353,9 @@ class TelegramAuthMiddleware(BaseHTTPMiddleware):
         request.state.chat_id = chat_id
         request.state.user_id = extract_user_id(parsed) or chat_id
         request.state.user_label = extract_user_label(parsed)
+        user_info = extract_user_info(parsed)
+        if user_info:
+            upsert_user(user_info)
         return await call_next(request)
 
 
@@ -936,20 +979,30 @@ def _require_admin(request: Request):
 @app.get("/api/admin/subscriptions")
 def admin_list_subscriptions(request: Request):
     _require_admin(request)
+    chat_id = request.state.chat_id
     with cursor() as (_, cur):
         cur.execute("""
-            SELECT s.user_id, s.chat_id, g.title AS group_title,
+            SELECT s.user_id, s.chat_id,
+                   u.username, u.first_name, u.last_name,
                    s.paid_until, s.trial_start
             FROM subscriptions s
-            LEFT JOIN groups g ON g.chat_id = s.chat_id
+            LEFT JOIN users u ON u.user_id = s.user_id
+            WHERE s.chat_id = %s
             ORDER BY s.paid_until DESC NULLS LAST
-        """)
+        """, (chat_id,))
         rows = cur.fetchall()
+    def display_name(r):
+        if r["username"]:
+            return f"@{r['username']}"
+        name = (r["first_name"] or "").strip()
+        if r["last_name"]:
+            name += f" {r['last_name']}"
+        return name.strip() or str(r["user_id"])
     return [
         {
             "user_id": r["user_id"],
             "chat_id": r["chat_id"],
-            "group_title": r["group_title"] or str(r["chat_id"]),
+            "display_name": display_name(r),
             "paid_until": _to_utc(r["paid_until"]).isoformat() if r["paid_until"] else None,
             "trial_start": _to_utc(r["trial_start"]).isoformat() if r["trial_start"] else None,
         }
