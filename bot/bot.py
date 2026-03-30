@@ -96,6 +96,10 @@ class MessageLogMiddleware(BaseMiddleware):
             else:
                 action = f"message: {text}"
             log(msg.chat.id, user_label, action)
+            try:
+                await upsert_user(msg.from_user)
+            except Exception:
+                pass
         return await handler(event, data)
 
 
@@ -142,6 +146,17 @@ async def save_group(chat_id: int, title: str):
         "INSERT INTO groups (chat_id, title) VALUES ($1, $2) ON CONFLICT (chat_id) DO UPDATE SET title=EXCLUDED.title",
         chat_id, title
     )
+
+
+async def upsert_user(user):
+    pool = await get_pg_pool()
+    await pool.execute("""
+        INSERT INTO users (user_id, username, first_name, last_name, updated_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (user_id) DO UPDATE
+        SET username=EXCLUDED.username, first_name=EXCLUDED.first_name,
+            last_name=EXCLUDED.last_name, updated_at=NOW()
+    """, user.id, user.username, user.first_name, user.last_name)
 
 
 async def link_user_group(user_id: int, chat_id: int):
@@ -231,6 +246,7 @@ async def main():
     @dp.message(CommandStart())
     async def cmd_start(message: Message, command: CommandObject):
         user_label = format_user(message.from_user)
+        await upsert_user(message.from_user)
 
         if message.chat.type in ("group", "supergroup"):
             is_first = await get_group_title(message.chat.id) is None
