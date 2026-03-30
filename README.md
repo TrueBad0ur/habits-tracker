@@ -1,4 +1,4 @@
-# Habits Tracker v2.0
+# Habits Tracker
 
 Telegram Mini App для отслеживания привычек в групповых чатах. Участники группы ведут общий календарь, смотрят стрики, ачивки и рейтинг.
 
@@ -69,17 +69,25 @@ cd habits-tracker/telegram-bot-miniapp
 
 ### 2. Настроить переменные окружения
 
-Открой `docker-compose.yml` и заполни:
+Скопируй `.env.example` в `.env` и заполни все поля:
 
-```yaml
-x-common-env: &common-env
-  BOT_TOKEN: "токен от BotFather"
-  WEBAPP_URL: "https://your-domain.com"
-  ENABLE_LOGGING: "true"   # false — отключить логи
-  TZ: "Europe/Moscow"      # часовой пояс для логов
+```bash
+cp .env.example .env
 ```
 
-Порт фронтенда (по умолчанию 8092) — настраивается в секции `frontend → ports`.
+| Переменная | Описание |
+|---|---|
+| `BOT_TOKEN` | Токен бота от BotFather |
+| `WEBAPP_URL` | HTTPS-адрес твоего домена, например `https://habits.example.com` |
+| `YOOKASSA_SHOP_ID` | ID магазина из личного кабинета ЮКассы |
+| `YOOKASSA_SECRET` | Секретный ключ API из личного кабинета ЮКассы |
+| `SUBSCRIPTION_PRICE` | Цена подписки в рублях (по умолчанию `199.00`) |
+| `TRIAL_SECONDS` | Длина триала в секундах (`604800` = 7 дней) |
+| `ADMIN_USER_IDS` | Telegram ID администраторов через запятую |
+| `PG_PASSWORD` | Пароль PostgreSQL — придумай любой сложный |
+| `TZ` | Часовой пояс для логов, например `Europe/Moscow` |
+
+Остальные PG-переменные (`PG_HOST`, `PG_PORT`, `PG_DB`, `PG_USER`) можно оставить по умолчанию.
 
 ### 3. Настроить обратный прокси
 
