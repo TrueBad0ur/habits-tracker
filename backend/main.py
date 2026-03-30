@@ -351,7 +351,7 @@ def create_person(body: PersonCreate, request: Request):
         with cursor() as (conn, cur):
             cur.execute("INSERT INTO persons (chat_id, name) VALUES (%s, %s)", (chat_id, body.name.strip()))
     except psycopg2.errors.UniqueViolation:
-        raise HTTPException(400, "Такой участник уже есть")
+        raise HTTPException(400, "Такой участник уже есть / Member already exists")
     log(chat_id, request.state.user_label, f"added person \"{body.name.strip()}\"")
     return {"ok": True}
 
@@ -402,7 +402,7 @@ def create_habit(body: HabitCreate, request: Request):
             person_row = cur.fetchone()
             person_name = person_row["name"] if person_row else f"id={body.person_id}"
     except psycopg2.errors.UniqueViolation:
-        raise HTTPException(400, "Такая привычка у этого участника уже есть")
+        raise HTTPException(400, "Такая привычка у этого участника уже есть / Habit already exists for this member")
     log(chat_id, request.state.user_label, f"added habit \"{body.title.strip()}\" for person \"{person_name}\"")
     return {"ok": True}
 
@@ -792,7 +792,7 @@ def create_payment(request: Request):
     payload = json.dumps({
         "amount": {"value": SUBSCRIPTION_PRICE, "currency": "RUB"},
         "confirmation": {"type": "redirect", "return_url": f"https://t.me/{BOT_USERNAME}?startapp=g{abs(chat_id)}" if BOT_USERNAME else WEBAPP_URL},
-        "description": "Подписка Habits Tracker на 30 дней",
+        "description": "Подписка Habits Tracker на 30 дней / Habits Tracker subscription 30 days",
         "metadata": {"user_id": str(user_id), "chat_id": str(chat_id)},
         "capture": True,
     }).encode()
@@ -909,7 +909,7 @@ async def yookassa_webhook(request: Request):
             pass
         notify_payload = json.dumps({
             "chat_id": chat_id,
-            "text": f"✅ {user_name} оформил подписку до <b>{paid_date}</b>",
+            "text": f"✅ {user_name} оформил подписку до <b>{paid_date}</b> / subscribed until <b>{paid_date}</b>",
             "parse_mode": "HTML",
         }).encode()
         notify_req = url_req.Request(

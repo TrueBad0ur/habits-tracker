@@ -177,11 +177,11 @@ async def main():
     me = await bot.get_me()
 
     await bot.set_my_commands(
-        [BotCommand(command="start", description="Открыть трекер привычек")],
+        [BotCommand(command="start", description="Открыть трекер привычек / Open habits tracker")],
         scope=BotCommandScopeAllGroupChats(),
     )
     await bot.set_my_commands(
-        [BotCommand(command="start", description="Открыть трекер привычек")],
+        [BotCommand(command="start", description="Открыть трекер привычек / Open habits tracker")],
         scope=BotCommandScopeAllPrivateChats(),
     )
 
@@ -195,7 +195,7 @@ async def main():
             miniapp_link = f"https://t.me/{me.username}?startapp=g{abs(message.chat.id)}"
             log(message.chat.id, user_label, f"used /start in group \"{message.chat.title}\"")
             markup = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="Открыть трекер", url=miniapp_link)
+                InlineKeyboardButton(text="Открыть трекер / Open tracker", url=miniapp_link)
             ]])
             if is_first:
                 welcome_caption = (
@@ -231,7 +231,7 @@ async def main():
                     )
             else:
                 await message.answer(
-                    f"Трекер привычек для <b>{message.chat.title}</b>:",
+                    f"Трекер привычек для <b>{message.chat.title}</b> / Habits tracker for <b>{message.chat.title}</b>:",
                     reply_markup=markup,
                     parse_mode="HTML",
                 )
@@ -252,9 +252,9 @@ async def main():
                 webapp_url = f"{WEBAPP_URL}?cid={chat_id}"
                 log(message.chat.id, user_label, f"opened tracker for group \"{title}\" (cid={chat_id})")
                 await message.answer(
-                    f"Трекер для <b>{title}</b>:",
+                    f"Трекер для <b>{title}</b> / Tracker for <b>{title}</b>:",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text=f"Открыть · {title}", web_app=WebAppInfo(url=webapp_url))
+                        InlineKeyboardButton(text=f"Открыть · {title} / Open · {title}", web_app=WebAppInfo(url=webapp_url))
                     ]]),
                     parse_mode="HTML",
                 )
@@ -263,8 +263,8 @@ async def main():
                 log(message.chat.id, user_label, f"used /start in private chat")
                 if not groups:
                     await message.answer(
-                        "Добавь бота в группу и нажми /start там — "
-                        "здесь появятся кнопки для каждого чата."
+                        "Добавь бота в группу и нажми /start там — здесь появятся кнопки для каждого чата.\n\n"
+                        "Add the bot to a group and send /start there — buttons for each chat will appear here."
                     )
                 else:
                     buttons = [
@@ -275,7 +275,7 @@ async def main():
                         for g in groups
                     ]
                     await message.answer(
-                        "Выбери трекер:",
+                        "Выбери трекер / Choose tracker:",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
                     )
 

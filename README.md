@@ -1,49 +1,49 @@
-# Habits Tracker
+# Habits Tracker v2.0
 
-Telegram Mini App для отслеживания привычек в групповых чатах. Участники группы ведут общий календарь, смотрят стрики, ачивки и рейтинг.
+Telegram Mini App for tracking habits in group chats. Group members share a common calendar, view streaks, achievements, and leaderboard.
 
 ---
 
-## Требования
+## Requirements
 
 - Docker + Docker Compose
-- Домен с HTTPS (mini app работает только по HTTPS)
-- Обратный прокси (nginx, Caddy и т.д.), проксирующий домен на порт контейнера
+- Domain with HTTPS (mini app requires HTTPS)
+- Reverse proxy (nginx, Caddy, etc.) pointing your domain to the container port
 
 ---
 
-## Настройка бота в BotFather
+## BotFather Setup
 
-### 1. Создать бота
+### 1. Create a bot
 
 ```
 /newbot
 ```
 
-Сохрани токен — он пойдёт в `BOT_TOKEN`.
+Save the token — it goes into `BOT_TOKEN`.
 
-### 2. Отключить Group Privacy
-
-```
-/mybots → выбрать бота → Bot Settings → Group Privacy → Turn off
-```
-
-Без этого бот не видит сообщения в группах.
-
-### 3. Настроить Mini App
+### 2. Disable Group Privacy
 
 ```
-/mybots → выбрать бота → Bot Settings → Configure Main Mini App → Enable
+/mybots → select bot → Bot Settings → Group Privacy → Turn off
+```
+
+Without this the bot won't see messages in groups.
+
+### 3. Configure Mini App
+
+```
+/mybots → select bot → Bot Settings → Configure Main Mini App → Enable
 → Enter the URL: https://your-domain.com
 ```
 
-### 4. Заполнить описание (опционально)
+### 4. Fill in description (optional)
 
 ```
-/mybots → выбрать бота → Edit Bot → Edit About
+/mybots → select bot → Edit Bot → Edit About
 ```
 
-Пример:
+Example:
 ```
 🏋️ Трекер привычек / Habits tracker
 
@@ -54,122 +54,119 @@ Add to a group → /start → mini app
 Habits, streaks, leaderboard
 ```
 
-Картинку для приветствия при первом `/start` положи в `assets/hello.jpg`.
+Place the welcome image for the first `/start` at `assets/hello.jpg`.
 
 ---
 
-## Установка
+## Installation
 
-### 1. Клонировать репозиторий
+### 1. Clone the repository
 
 ```bash
 git clone <repo-url>
-cd habits-tracker/telegram-bot-miniapp
+cd habits-tracker
 ```
 
-### 2. Настроить переменные окружения
+### 2. Configure environment variables
 
-Скопируй `.env.example` в `.env` и заполни все поля:
+Copy `.env.example` to `.env` and fill in all fields:
 
 ```bash
 cp .env.example .env
 ```
 
-| Переменная | Описание |
+| Variable | Description |
 |---|---|
-| `BOT_TOKEN` | Токен бота от BotFather |
-| `WEBAPP_URL` | HTTPS-адрес твоего домена, например `https://habits.example.com` |
-| `YOOKASSA_SHOP_ID` | ID магазина из личного кабинета ЮКассы |
-| `YOOKASSA_SECRET` | Секретный ключ API из личного кабинета ЮКассы |
-| `SUBSCRIPTION_PRICE` | Цена подписки в рублях (по умолчанию `199.00`) |
-| `TRIAL_SECONDS` | Длина триала в секундах (`604800` = 7 дней) |
-| `ADMIN_USER_IDS` | Telegram ID администраторов через запятую |
-| `PG_PASSWORD` | Пароль PostgreSQL — придумай любой сложный |
-| `TZ` | Часовой пояс для логов, например `Europe/Moscow` |
+| `BOT_TOKEN` | Bot token from BotFather |
+| `WEBAPP_URL` | HTTPS URL of your domain, e.g. `https://habits.example.com` |
+| `YOOKASSA_SHOP_ID` | Shop ID from YooKassa dashboard |
+| `YOOKASSA_SECRET` | API secret key from YooKassa dashboard |
+| `SUBSCRIPTION_PRICE` | Subscription price in RUB (default `199.00`) |
+| `TRIAL_SECONDS` | Trial period in seconds (`604800` = 7 days) |
+| `ADMIN_USER_IDS` | Telegram IDs of admins, comma-separated |
+| `PG_PASSWORD` | PostgreSQL password — choose any strong password |
+| `TZ` | Timezone for logs, e.g. `Europe/Moscow` |
 
-Остальные PG-переменные (`PG_HOST`, `PG_PORT`, `PG_DB`, `PG_USER`) можно оставить по умолчанию.
+Other PG variables (`PG_HOST`, `PG_PORT`, `PG_DB`, `PG_USER`) can be left as defaults.
 
-### 3. Настроить обратный прокси
+### 3. Configure reverse proxy
 
-Проксируй `https://your-domain.com` → `http://localhost:8092`.
+Proxy `https://your-domain.com` → `http://localhost:8092`.
 
-### 4. Запустить
+### 4. Start
 
 ```bash
-docker compose up
+docker compose up -d
 ```
 
 ---
 
-## Использование
+## Usage
 
-### Подключение группы
+### Connecting a group
 
-1. Добавь бота в группу
-2. Напиши `/start` в группе — бот пришлёт кнопку **Открыть трекер**
-3. Нажми кнопку — Mini App откроется прямо в Telegram
+1. Add the bot to a group
+2. Send `/start` in the group — the bot will send an **Open tracker** button
+3. Tap the button — the Mini App opens inside Telegram
 
-При первом `/start` бот пришлёт приветственное сообщение с картинкой.
+On the first `/start` the bot sends a welcome message with an image.
 
-### В Mini App
+### In the Mini App
 
-**Календарь** — основной экран. Нажми на любой день, чтобы отметить выполнение привычек (✅ / ❌) для каждого участника.
+**Calendar** — main screen. Tap any day to mark habit completion (✅ / ❌) for each member.
 
-**Ачивки** — стрики за каждую привычку. Значки разблокируются при достижении серий: 🔥 2 · 💪 3 · ⚡ 5 · 🌟 7 · 🏆 14 · 👑 30 · 💎 60 дней подряд.
+**Achievements** — streaks for each habit. Badges unlock at streak milestones: 🔥 2 · 💪 3 · ⚡ 5 · 🌟 7 · 🏆 14 · 👑 30 · 💎 60 days in a row.
 
-**Рейтинг** — участники отсортированы по % выполнения за выбранный месяц. 🥇🥈🥉 для топ-3.
+**Leaderboard** — members sorted by completion % for the selected month. 🥇🥈🥉 for top 3.
 
-### Настройки (кнопка ⚙)
+### Settings (⚙ button)
 
-- **Участники** — добавить / удалить участников
-- **Привычки** — добавить / удалить привычки для каждого участника
-- **База данных** — экспорт и импорт данных в формате JSON
-- **Язык** — Русский / English
+- **Members** — add / remove members
+- **Habits** — add / remove habits per member
+- **Database** — export and import data as JSON
+- **Language** — Russian / English
 
 ---
 
-## Данные и логи
+## Data & Logs
 
 ```
-telegram-bot-miniapp/
-├── data/
-│   ├── habits.db       # база данных привычек
-│   └── bot.db          # состояние бота (группы, кеш)
+habits-tracker/
 └── logs/
-    ├── group_<id>.log  # лог групповых чатов
-    └── direct_<id>.log # лог личных чатов
+    ├── group_<id>.log   # group chat logs
+    └── direct_<id>.log  # private chat logs
 ```
 
-Формат лога:
+Log format:
 ```
-[2026-03-07 12:00:00 MSK] Иван (@ivan, id=12345): added habit "Спорт" for person "Иван" in group 'My Group'
-[2026-03-07 12:01:00 MSK] Иван (@ivan, id=12345): marked "Спорт" on 2026-03-07 as ✅ in group 'My Group'
+[2026-03-07 12:00:00 MSK] Ivan (@ivan, id=12345): added habit "Sport" for person "Ivan" in group 'My Group'
+[2026-03-07 12:01:00 MSK] Ivan (@ivan, id=12345): marked "Sport" on 2026-03-07 as ✅ in group 'My Group'
 ```
 
 ---
 
-## Управление подписками (psql)
+## Subscription Management (psql)
 
-Подключиться к БД:
+Connect to the database:
 ```bash
 docker compose exec postgres psql -U habits -d habits
 ```
 
-### Выдать подписку
+### Grant subscription
 
 ```sql
--- На 30 дней
+-- For 30 days
 INSERT INTO subscriptions (user_id, chat_id, paid_until)
 VALUES (<user_id>, <chat_id>, NOW() + INTERVAL '30 days')
 ON CONFLICT (user_id, chat_id) DO UPDATE SET paid_until = NOW() + INTERVAL '30 days';
 
--- Навсегда (100 лет)
+-- Forever (100 years)
 INSERT INTO subscriptions (user_id, chat_id, paid_until)
 VALUES (<user_id>, <chat_id>, NOW() + INTERVAL '100 years')
 ON CONFLICT (user_id, chat_id) DO UPDATE SET paid_until = NOW() + INTERVAL '100 years';
 ```
 
-### Проверить подписку
+### Check subscription
 
 ```sql
 SELECT user_id, chat_id, trial_start, paid_until,
@@ -178,7 +175,7 @@ FROM subscriptions
 WHERE user_id = <user_id>;
 ```
 
-### Продлить подписку
+### Extend subscription
 
 ```sql
 UPDATE subscriptions
@@ -186,7 +183,7 @@ SET paid_until = paid_until + INTERVAL '30 days'
 WHERE user_id = <user_id> AND chat_id = <chat_id>;
 ```
 
-### Обнулить (сбросить к триалу)
+### Reset to trial
 
 ```sql
 UPDATE subscriptions
@@ -194,7 +191,7 @@ SET paid_until = NULL, trial_start = NOW()
 WHERE user_id = <user_id> AND chat_id = <chat_id>;
 ```
 
-### Отозвать подписку
+### Revoke subscription
 
 ```sql
 UPDATE subscriptions
@@ -202,7 +199,7 @@ SET paid_until = NOW() - INTERVAL '1 second'
 WHERE user_id = <user_id> AND chat_id = <chat_id>;
 ```
 
-### Список всех активных подписок
+### List all active subscriptions
 
 ```sql
 SELECT s.user_id, s.chat_id, g.title, s.paid_until
@@ -212,7 +209,7 @@ WHERE s.paid_until > NOW()
 ORDER BY s.paid_until;
 ```
 
-### Посмотреть платежи
+### View payments
 
 ```sql
 SELECT payment_id, user_id, chat_id, status, created_at
@@ -223,10 +220,10 @@ LIMIT 20;
 
 ---
 
-## Обновление
+## Update
 
 ```bash
 docker compose down
 git pull
-docker compose up --build
+docker compose up -d --build
 ```
