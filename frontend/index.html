@@ -864,6 +864,12 @@ const TRANSLATIONS = {
     sectionAdmin:         'Режим администратора',
     adminModeOn:          'Режим администратора включён',
     adminModeOff:         'Режим администратора выключен',
+    sectionAdminSubs:     'Управление подписками',
+    adminSubReset:        'Сброс',
+    adminSubExtend:       '+30 дней',
+    adminSubTrial:        'Триал',
+    adminSubActive:       d => `до ${d}`,
+    adminSubExpired:      d => `истекла ${d}`,
     subStatusTrial:       s => `Пробный период: ${s}`,
     subStatusActive:      d => `Активна до ${d}`,
     subStatusExpired:     'Истекла',
@@ -918,6 +924,12 @@ const TRANSLATIONS = {
     sectionAdmin:         'Admin mode',
     adminModeOn:          'Admin mode enabled',
     adminModeOff:         'Admin mode disabled',
+    sectionAdminSubs:     'Subscription management',
+    adminSubReset:        'Reset',
+    adminSubExtend:       '+30 days',
+    adminSubTrial:        'Trial',
+    adminSubActive:       d => `until ${d}`,
+    adminSubExpired:      d => `expired ${d}`,
     subStatusTrial:       s => `Trial: ${s}`,
     subStatusActive:      d => `Active until ${d}`,
     subStatusExpired:     'Expired',
@@ -1482,6 +1494,10 @@ function renderSettingsBody() {
           style="width:18px;height:18px;accent-color:var(--accent)">
         ${adminMode ? t.adminModeOn : t.adminModeOff}
       </label>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">${t.sectionAdminSubs}</div>
+      <div id="admin-subs-list"><span style="color:var(--muted);font-size:13px">Loading…</span></div>
     </div>` : '';
 
   body.innerHTML = `
@@ -1666,6 +1682,46 @@ function toggleAdminMode(val) {
   adminMode = val;
   render();
   renderSettingsBody();
+}
+
+async function loadAdminSubs() {
+  const el = document.getElementById('admin-subs-list');
+  if (!el) return;
+  const t = T();
+  try {
+    const res = await apiFetch('/api/admin/subscriptions');
+    if (!res.ok) { el.innerHTML = '<span style="color:var(--muted);font-size:13px">Error loading</span>'; return; }
+    const subs = await res.json();
+    if (!subs.length) { el.innerHTML = '<span style="color:var(--muted);font-size:13px">No subscriptions</span>'; return; }
+    el.innerHTML = subs.map(s => {
+      const now = new Date();
+      let statusHtml;
+      if (!s.paid_until) {
+        statusHtml = `<span style="color:var(--muted)">${t.adminSubTrial}</span>`;
+      } else {
+        const d = new Date(s.paid_until);
+        const fmt = d.toISOString().slice(0,10);
+        statusHtml = d > now
+          ? `<span style="color:#4caf50">${t.adminSubActive(fmt)}</span>`
+          : `<span style="color:#f44336">${t.adminSubExpired(fmt)}</span>`;
+      }
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${s.group_title}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">uid:${s.user_id} · ${statusHtml}</div>
+        <div style="display:flex;gap:8px">
+          <button class="db-btn" style="font-size:12px;padding:4px 10px" onclick="adminSubAction('reset',${s.user_id},${s.chat_id})">🔄 ${t.adminSubReset}</button>
+          <button class="db-btn" style="font-size:12px;padding:4px 10px" onclick="adminSubAction('extend',${s.user_id},${s.chat_id})">➕ ${t.adminSubExtend}</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:13px">Error</span>';
+  }
+}
+
+async function adminSubAction(action, userId, chatId) {
+  await apiFetch(`/api/admin/subscriptions/${userId}/${chatId}/${action}`, {method:'POST'});
+  loadAdminSubs();
 }
 
 function openPaywall() {

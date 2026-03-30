@@ -924,3 +924,57 @@ async def yookassa_webhook(request: Request):
             pass
 
     return {"ok": True}
+
+
+# ── Admin endpoints ────────────────────────────────────────────────────────────
+
+def _require_admin(request: Request):
+    if request.state.user_id not in _ADMIN_IDS:
+        raise HTTPException(403, "Forbidden")
+
+
+@app.get("/api/admin/subscriptions")
+def admin_list_subscriptions(request: Request):
+    _require_admin(request)
+    with cursor() as (_, cur):
+        cur.execute("""
+            SELECT s.user_id, s.chat_id, g.title AS group_title,
+                   s.paid_until, s.trial_start
+            FROM subscriptions s
+            LEFT JOIN groups g ON g.chat_id = s.chat_id
+            ORDER BY s.paid_until DESC NULLS LAST
+        """)
+        rows = cur.fetchall()
+    return [
+        {
+            "user_id": r["user_id"],
+            "chat_id": r["chat_id"],
+            "group_title": r["group_title"] or str(r["chat_id"]),
+            "paid_until": _to_utc(r["paid_until"]).isoformat() if r["paid_until"] else None,
+            "trial_start": _to_utc(r["trial_start"]).isoformat() if r["trial_start"] else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/api/admin/subscriptions/{user_id}/{chat_id}/reset")
+def admin_reset_subscription(user_id: int, chat_id: int, request: Request):
+    _require_admin(request)
+    with cursor() as (_, cur):
+        cur.execute(
+            "UPDATE subscriptions SET paid_until = NULL, trial_start = NOW() WHERE user_id=%s AND chat_id=%s",
+            (user_id, chat_id)
+        )
+    return {"ok": True}
+
+
+@app.post("/api/admin/subscriptions/{user_id}/{chat_id}/extend")
+def admin_extend_subscription(user_id: int, chat_id: int, request: Request):
+    _require_admin(request)
+    with cursor() as (_, cur):
+        cur.execute("""
+            UPDATE subscriptions
+            SET paid_until = GREATEST(COALESCE(paid_until, NOW()), NOW()) + INTERVAL '30 days'
+            WHERE user_id=%s AND chat_id=%s
+        """, (user_id, chat_id))
+    return {"ok": True}

@@ -11,11 +11,11 @@ import asyncpg
 import certifi
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.filters import CommandStart, CommandObject
+from aiogram.filters import CommandStart, CommandObject, Command
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
-    Update, FSInputFile,
+    Update, FSInputFile, CallbackQuery,
 )
 
 from config import BOT_TOKEN, WEBAPP_URL
@@ -167,6 +167,49 @@ async def get_group_title(chat_id: int) -> str | None:
     return row["title"] if row else None
 
 
+async def get_all_subscriptions() -> list[asyncpg.Record]:
+    pool = await get_pg_pool()
+    return await pool.fetch("""
+        SELECT s.user_id, s.chat_id, g.title AS group_title, s.paid_until, s.trial_start
+        FROM subscriptions s
+        LEFT JOIN groups g ON g.chat_id = s.chat_id
+        ORDER BY s.paid_until DESC NULLS LAST
+    """)
+
+
+async def sub_reset(user_id: int, chat_id: int):
+    pool = await get_pg_pool()
+    await pool.execute(
+        "UPDATE subscriptions SET paid_until = NULL, trial_start = NOW() WHERE user_id=$1 AND chat_id=$2",
+        user_id, chat_id
+    )
+
+
+async def sub_add_month(user_id: int, chat_id: int):
+    pool = await get_pg_pool()
+    await pool.execute("""
+        UPDATE subscriptions
+        SET paid_until = GREATEST(COALESCE(paid_until, NOW()), NOW()) + INTERVAL '30 days'
+        WHERE user_id=$1 AND chat_id=$2
+    """, user_id, chat_id)
+
+
+def _sub_card(row: asyncpg.Record) -> tuple[str, InlineKeyboardMarkup]:
+    uid, cid = row["user_id"], row["chat_id"]
+    title = row["group_title"] or str(cid)
+    paid_until = row["paid_until"]
+    if paid_until:
+        status = f"✅ until {paid_until.strftime('%Y-%m-%d')}" if paid_until > datetime.now(paid_until.tzinfo) else f"❌ expired {paid_until.strftime('%Y-%m-%d')}"
+    else:
+        status = "🕐 trial"
+    text = f"<b>{title}</b>\nuser_id: <code>{uid}</code>\n{status}"
+    markup = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔄 Reset / Сброс", callback_data=f"sub_reset:{uid}:{cid}"),
+        InlineKeyboardButton(text="➕ 1 month / +месяц", callback_data=f"sub_month:{uid}:{cid}"),
+    ]])
+    return text, markup
+
+
 async def main():
     await init_bot_db()
 
@@ -278,6 +321,59 @@ async def main():
                         "Выбери трекер / Choose tracker:",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
                     )
+
+    ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_USER_IDS", "").split(",") if x.strip()]
+
+    @dp.message(Command("admin"))
+    async def cmd_admin(message: Message):
+        if message.from_user.id not in ADMIN_IDS:
+            return
+        if message.chat.type != "private":
+            return
+        rows = await get_all_subscriptions()
+        if not rows:
+            await message.answer("No subscriptions yet.")
+            return
+        await message.answer(f"🔧 Admin panel — {len(rows)} subscription(s):")
+        for row in rows:
+            text, markup = _sub_card(row)
+            await message.answer(text, reply_markup=markup, parse_mode="HTML")
+
+    @dp.callback_query(lambda c: c.data and c.data.startswith("sub_reset:"))
+    async def cb_sub_reset(call: CallbackQuery):
+        if call.from_user.id not in ADMIN_IDS:
+            await call.answer("Not authorized.", show_alert=True)
+            return
+        _, uid, cid = call.data.split(":")
+        await sub_reset(int(uid), int(cid))
+        pool = await get_pg_pool()
+        rows = await pool.fetch(
+            "SELECT s.user_id, s.chat_id, g.title AS group_title, s.paid_until, s.trial_start "
+            "FROM subscriptions s LEFT JOIN groups g ON g.chat_id=s.chat_id "
+            "WHERE s.user_id=$1 AND s.chat_id=$2", int(uid), int(cid)
+        )
+        if rows:
+            text, markup = _sub_card(rows[0])
+            await call.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        await call.answer("✅ Reset to trial")
+
+    @dp.callback_query(lambda c: c.data and c.data.startswith("sub_month:"))
+    async def cb_sub_month(call: CallbackQuery):
+        if call.from_user.id not in ADMIN_IDS:
+            await call.answer("Not authorized.", show_alert=True)
+            return
+        _, uid, cid = call.data.split(":")
+        await sub_add_month(int(uid), int(cid))
+        pool = await get_pg_pool()
+        rows = await pool.fetch(
+            "SELECT s.user_id, s.chat_id, g.title AS group_title, s.paid_until, s.trial_start "
+            "FROM subscriptions s LEFT JOIN groups g ON g.chat_id=s.chat_id "
+            "WHERE s.user_id=$1 AND s.chat_id=$2", int(uid), int(cid)
+        )
+        if rows:
+            text, markup = _sub_card(rows[0])
+            await call.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        await call.answer("✅ +30 days added")
 
     await dp.start_polling(bot)
 
