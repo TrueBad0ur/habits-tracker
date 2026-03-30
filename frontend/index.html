@@ -1495,10 +1495,10 @@ function renderSettingsBody() {
         ${adminMode ? t.adminModeOn : t.adminModeOff}
       </label>
     </div>
-    <div class="settings-section">
+    ${adminMode ? `<div class="settings-section">
       <div class="settings-section-title">${t.sectionAdminSubs}</div>
       <div id="admin-subs-list"><span style="color:var(--muted);font-size:13px">Loading…</span></div>
-    </div>` : '';
+    </div>` : ''}` : '';
 
   body.innerHTML = `
     ${subStatusHtml}
@@ -1557,6 +1557,7 @@ function renderSettingsBody() {
     const inp = document.getElementById("new-habit-input-"+p.id);
     if (inp) inp.addEventListener('keydown', e => { if(e.key==='Enter') addHabit(p.id); });
   });
+  if (subscription?.is_admin) loadAdminSubs();
 }
 
 async function addPerson() {
@@ -1689,12 +1690,10 @@ async function loadAdminSubs() {
   if (!el) return;
   const t = T();
   try {
-    const res = await apiFetch('/api/admin/subscriptions');
-    if (!res.ok) { el.innerHTML = '<span style="color:var(--muted);font-size:13px">Error loading</span>'; return; }
-    const subs = await res.json();
+    const subs = await api('/admin/subscriptions');
     if (!subs.length) { el.innerHTML = '<span style="color:var(--muted);font-size:13px">No subscriptions</span>'; return; }
+    const now = new Date();
     el.innerHTML = subs.map(s => {
-      const now = new Date();
       let statusHtml;
       if (!s.paid_until) {
         statusHtml = `<span style="color:var(--muted)">${t.adminSubTrial}</span>`;
@@ -1715,12 +1714,12 @@ async function loadAdminSubs() {
       </div>`;
     }).join('');
   } catch(e) {
-    el.innerHTML = '<span style="color:var(--muted);font-size:13px">Error</span>';
+    el.innerHTML = `<span style="color:var(--muted);font-size:13px">Error: ${e.message}</span>`;
   }
 }
 
 async function adminSubAction(action, userId, chatId) {
-  await apiFetch(`/api/admin/subscriptions/${userId}/${chatId}/${action}`, {method:'POST'});
+  await api(`/admin/subscriptions/${userId}/${chatId}/${action}`, 'POST');
   loadAdminSubs();
 }
 
