@@ -183,6 +183,8 @@ body {
   border:1px solid var(--border2);
   border-radius:20px;
   width:100%;max-width:440px;
+  display:flex;flex-direction:column;
+  max-height:calc(100vh - 32px);
   overflow:hidden;
   animation:slideUp .2s ease;
 }
@@ -209,7 +211,7 @@ body {
 }
 .modal-close:hover{color:var(--text);}
 
-.modal-body { padding:16px 20px 20px; }
+.modal-body { padding:16px 20px 20px; overflow-y:auto; flex:1; }
 
 .person-section { margin-bottom:20px; }
 .person-section:last-child{margin-bottom:0;}
