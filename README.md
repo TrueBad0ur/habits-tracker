@@ -4,6 +4,16 @@ Telegram Mini App for tracking habits in group chats. Group members share a comm
 
 ---
 
+## Screenshots
+
+![s1](assets/s1.png)
+![s2](assets/s2.png)
+![s3](assets/s3.png)
+![s4](assets/s4.png)
+![s5](assets/s5.png)
+
+---
+
 ## Requirements
 
 - Docker + Docker Compose
